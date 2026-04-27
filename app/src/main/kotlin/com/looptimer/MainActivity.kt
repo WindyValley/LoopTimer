@@ -762,52 +762,60 @@ fun LoopTimerScreen(
                     .padding(16.dp)
                     .verticalScroll(rememberScrollState())
             ) {
-                Text("设置", fontSize = 18.sp, fontWeight = FontWeight.Bold, color = Color.White)
-                
+                Text("设置", fontSize = 18.sp, fontWeight = FontWeight.Bold, color = textColor)
+
                 Spacer(modifier = Modifier.height(16.dp))
-                
+
                 TimeInputRow(
                     label = "工作时长",
                     minutes = workMinutes,
                     seconds = workSeconds,
+                    textColor = textColor,
+                    inputBgColor = if (isDarkTheme) Color(0xFF3D3D3D) else Color(0xFFE0E0E0),
                     onMinutesChange = { workMinutes = it },
                     onSecondsChange = { workSeconds = it }
                 )
-                
+
                 Spacer(modifier = Modifier.height(12.dp))
-                
+
                 TimeInputRowWithReset(
                     label = "休息时长",
                     minutes = breakMinutes,
                     seconds = breakSeconds,
+                    textColor = textColor,
+                    inputBgColor = if (isDarkTheme) Color(0xFF3D3D3D) else Color(0xFFE0E0E0),
                     onMinutesChange = { breakMinutes = it },
                     onSecondsChange = { breakSeconds = it }
                 )
-                
+
                 Spacer(modifier = Modifier.height(12.dp))
-                
+
                 LoopInputRow(
                     loops = loops,
+                    textColor = textColor,
+                    inputBgColor = if (isDarkTheme) Color(0xFF3D3D3D) else Color(0xFFE0E0E0),
                     onLoopsChange = { loops = it }
                 )
-                
+
                 Spacer(modifier = Modifier.height(16.dp))
-                
+
                 AlarmSettingsPanel(
                     useAlarm = useAlarm,
+                    textColor = textColor,
+                    inputBgColor = if (isDarkTheme) Color(0xFF3D3D3D) else Color(0xFFE0E0E0),
                     onUseAlarmChange = { useAlarm = it },
                     alarmDuration = alarmDuration,
                     onAlarmDurationChange = { alarmDuration = it }
                 )
-                
+
                 Spacer(modifier = Modifier.height(12.dp))
-                
+
                 Row(
                     modifier = Modifier.fillMaxWidth(),
                     horizontalArrangement = Arrangement.SpaceBetween,
                     verticalAlignment = Alignment.CenterVertically
                 ) {
-                    Text("自动开始", color = Color.White, fontSize = 16.sp)
+                    Text("自动开始", color = textColor, fontSize = 16.sp)
                     Switch(
                         checked = autoStart,
                         onCheckedChange = { autoStart = it },
@@ -835,6 +843,8 @@ fun LoopTimerScreen(
 @Composable
 fun AlarmSettingsPanel(
     useAlarm: Boolean,
+    textColor: Color,
+    inputBgColor: Color,
     onUseAlarmChange: (Boolean) -> Unit,
     alarmDuration: Int,
     onAlarmDurationChange: (Int) -> Unit
@@ -845,7 +855,7 @@ fun AlarmSettingsPanel(
             horizontalArrangement = Arrangement.SpaceBetween,
             verticalAlignment = Alignment.CenterVertically
         ) {
-            Text("闹钟", color = Color.White, fontSize = 16.sp)
+            Text("闹钟", color = textColor, fontSize = 16.sp)
             Switch(
                 checked = useAlarm,
                 onCheckedChange = { onUseAlarmChange(it) },
@@ -855,18 +865,20 @@ fun AlarmSettingsPanel(
                 )
             )
         }
-        
+
         if (useAlarm) {
             Spacer(modifier = Modifier.height(12.dp))
-            
+
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.SpaceBetween,
                 verticalAlignment = Alignment.CenterVertically
             ) {
-                Text("最大持续时间", color = Color.White, fontSize = 16.sp)
+                Text("最大持续时间", color = textColor, fontSize = 16.sp)
                 AlarmDurationInput(
                     value = alarmDuration,
+                    textColor = textColor,
+                    inputBgColor = inputBgColor,
                     onValueChange = { onAlarmDurationChange(it) }
                 )
             }
@@ -877,24 +889,28 @@ fun AlarmSettingsPanel(
 @Composable
 fun AlarmDurationInput(
     value: Int,
+    textColor: Color,
+    inputBgColor: Color,
     onValueChange: (Int) -> Unit
 ) {
     Row(verticalAlignment = Alignment.CenterVertically) {
         Text(
             text = "[",
-            color = Color.White,
+            color = textColor,
             fontSize = 14.sp
         )
         NumberInputField(
             value = if (value < 0) 0 else value,
-            onValueChange = { 
-                onValueChange(it) 
+            textColor = textColor,
+            inputBgColor = inputBgColor,
+            onValueChange = {
+                onValueChange(it)
             },
             range = 0..300
         )
         Text(
             text = "] 秒 | 一直响",
-            color = Color.White,
+            color = textColor,
             fontSize = 14.sp,
             modifier = Modifier.clickable { onValueChange(-1) }
         )
@@ -906,6 +922,8 @@ fun TimeInputRow(
     label: String,
     minutes: Long,
     seconds: Long,
+    textColor: Color,
+    inputBgColor: Color,
     onMinutesChange: (Long) -> Unit,
     onSecondsChange: (Long) -> Unit
 ) {
@@ -914,20 +932,24 @@ fun TimeInputRow(
         horizontalArrangement = Arrangement.SpaceBetween,
         verticalAlignment = Alignment.CenterVertically
     ) {
-        Text(label, color = Color.White, fontSize = 16.sp)
+        Text(label, color = textColor, fontSize = 16.sp)
         Row(verticalAlignment = Alignment.CenterVertically) {
             NumberInputField(
                 value = minutes.toInt(),
+                textColor = textColor,
+                inputBgColor = inputBgColor,
                 onValueChange = { onMinutesChange(it.toLong()) },
                 range = 0..999
             )
-            Text(" 分 ", color = Color.White, fontSize = 14.sp)
+            Text(" 分 ", color = textColor, fontSize = 14.sp)
             NumberInputField(
                 value = seconds.toInt(),
+                textColor = textColor,
+                inputBgColor = inputBgColor,
                 onValueChange = { onSecondsChange(it.toLong()) },
                 range = 0..59
             )
-            Text(" 秒", color = Color.White, fontSize = 14.sp)
+            Text(" 秒", color = textColor, fontSize = 14.sp)
         }
     }
 }
@@ -937,6 +959,8 @@ fun TimeInputRowWithReset(
     label: String,
     minutes: Long,
     seconds: Long,
+    textColor: Color,
+    inputBgColor: Color,
     onMinutesChange: (Long) -> Unit,
     onSecondsChange: (Long) -> Unit
 ) {
@@ -945,7 +969,7 @@ fun TimeInputRowWithReset(
         horizontalArrangement = Arrangement.SpaceBetween,
         verticalAlignment = Alignment.CenterVertically
     ) {
-        Text(label, color = Color.White, fontSize = 16.sp)
+        Text(label, color = textColor, fontSize = 16.sp)
         Row(verticalAlignment = Alignment.CenterVertically) {
             Text(
                 text = "[归零]",
@@ -959,16 +983,20 @@ fun TimeInputRowWithReset(
             Spacer(modifier = Modifier.width(8.dp))
             NumberInputField(
                 value = minutes.toInt(),
+                textColor = textColor,
+                inputBgColor = inputBgColor,
                 onValueChange = { onMinutesChange(it.toLong()) },
                 range = 0..999
             )
-            Text(" 分 ", color = Color.White, fontSize = 14.sp)
+            Text(" 分 ", color = textColor, fontSize = 14.sp)
             NumberInputField(
                 value = seconds.toInt(),
+                textColor = textColor,
+                inputBgColor = inputBgColor,
                 onValueChange = { onSecondsChange(it.toLong()) },
                 range = 0..59
             )
-            Text(" 秒", color = Color.White, fontSize = 14.sp)
+            Text(" 秒", color = textColor, fontSize = 14.sp)
         }
     }
 }
@@ -976,18 +1004,20 @@ fun TimeInputRowWithReset(
 @Composable
 fun NumberInputField(
     value: Int,
+    textColor: Color,
+    inputBgColor: Color,
     onValueChange: (Int) -> Unit,
     range: IntRange
 ) {
     var textValue by remember(value) { mutableStateOf(value.toString()) }
     var isFocused by remember { mutableStateOf(false) }
-    
+
     LaunchedEffect(value) {
         if (!isFocused) {
             textValue = value.toString()
         }
     }
-    
+
     BasicTextField(
         value = textValue,
         onValueChange = { newValue ->
@@ -1001,7 +1031,7 @@ fun NumberInputField(
             }
         },
         textStyle = LocalTextStyle.current.copy(
-            color = Color.White,
+            color = textColor,
             fontSize = 18.sp,
             textAlign = TextAlign.Center
         ),
@@ -1013,10 +1043,10 @@ fun NumberInputField(
             onDone = { }
         ),
         singleLine = true,
-        cursorBrush = SolidColor(Color.White),
+        cursorBrush = SolidColor(textColor),
         modifier = Modifier
             .width(64.dp)
-            .background(Color(0xFF3D3D3D), RoundedCornerShape(4.dp))
+            .background(inputBgColor, RoundedCornerShape(4.dp))
             .padding(horizontal = 8.dp, vertical = 4.dp)
             .onFocusChanged { focusState ->
                 isFocused = focusState.isFocused
@@ -1030,6 +1060,8 @@ fun NumberInputField(
 @Composable
 fun LoopInputRow(
     loops: Int,
+    textColor: Color,
+    inputBgColor: Color,
     onLoopsChange: (Int) -> Unit
 ) {
     Row(
@@ -1037,13 +1069,13 @@ fun LoopInputRow(
         horizontalArrangement = Arrangement.SpaceBetween,
         verticalAlignment = Alignment.CenterVertically
     ) {
-        Text("循环次数", color = Color.White, fontSize = 16.sp)
+        Text("循环次数", color = textColor, fontSize = 16.sp)
         Row(verticalAlignment = Alignment.CenterVertically) {
             TextButton(
                 onClick = { if (loops > 1) onLoopsChange(loops - 1) },
                 modifier = Modifier.size(36.dp)
             ) {
-                Text("-", fontSize = 20.sp, color = Color.White)
+                Text("-", fontSize = 20.sp, color = textColor)
             }
             BasicTextField(
                 value = loops.toString(),
@@ -1057,7 +1089,7 @@ fun LoopInputRow(
                     }
                 },
                 textStyle = LocalTextStyle.current.copy(
-                    color = Color.White,
+                    color = textColor,
                     fontSize = 18.sp,
                     textAlign = TextAlign.Center
                 ),
@@ -1066,17 +1098,17 @@ fun LoopInputRow(
                     imeAction = ImeAction.Done
                 ),
                 singleLine = true,
-                cursorBrush = SolidColor(Color.White),
+                cursorBrush = SolidColor(textColor),
                 modifier = Modifier
                     .width(56.dp)
-                    .background(Color(0xFF3D3D3D), RoundedCornerShape(4.dp))
+                    .background(inputBgColor, RoundedCornerShape(4.dp))
                     .padding(horizontal = 8.dp, vertical = 4.dp)
             )
             TextButton(
                 onClick = { if (loops < 99) onLoopsChange(loops + 1) },
                 modifier = Modifier.size(36.dp)
             ) {
-                Text("+", fontSize = 20.sp, color = Color.White)
+                Text("+", fontSize = 20.sp, color = Color(0xFF81C784))
             }
         }
     }

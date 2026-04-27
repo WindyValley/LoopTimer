@@ -27,24 +27,26 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 
 class PresetListActivity : ComponentActivity() {
-    
+
     private lateinit var presetsManager: PresetsManager
-    
+
     private val editLauncher = registerForActivityResult(
         ActivityResultContracts.StartActivityForResult()
     ) { _ ->
         // 刷新列表
         recreate()
     }
-    
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        
+
         presetsManager = PresetsManager(this)
-        
+        val isDark = presetsManager.isDarkTheme()
+
         setContent {
             MaterialTheme {
                 PresetListScreen(
+                    isDarkTheme = isDark,
                     presets = presetsManager.getAllPresets(),
                     selectedId = presetsManager.getSelectedPresetId(),
                     onSelectPreset = { preset ->
@@ -78,6 +80,7 @@ class PresetListActivity : ComponentActivity() {
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun PresetListScreen(
+    isDarkTheme: Boolean,
     presets: List<TimerPreset>,
     selectedId: String?,
     onSelectPreset: (TimerPreset) -> Unit,
@@ -87,18 +90,25 @@ fun PresetListScreen(
     onBack: () -> Unit
 ) {
     val context = LocalContext.current
-    
+
+    val bgColor = if (isDarkTheme) Color(0xFF1E1E1E) else Color(0xFFF5F5F5)
+    val surfaceColor = if (isDarkTheme) Color(0xFF2D2D2D) else Color.White
+    val textColor = if (isDarkTheme) Color.White else Color(0xFF1E1E1E)
+    val textSecondary = if (isDarkTheme) Color(0xFF9E9E9E) else Color(0xFF757575)
+    val accentColor = Color(0xFFE57373)
+    val successColor = Color(0xFF81C784)
+
     Scaffold(
         topBar = {
             TopAppBar(
-                title = { Text("预设管理") },
+                title = { Text("预设管理", color = textColor) },
                 colors = TopAppBarDefaults.topAppBarColors(
-                    containerColor = Color(0xFF2D2D2D),
-                    titleContentColor = Color.White
+                    containerColor = surfaceColor,
+                    titleContentColor = textColor
                 ),
                 navigationIcon = {
                     IconButton(onClick = onBack) {
-                        Text("←", color = Color.White, fontSize = 20.sp)
+                        Text("←", color = textColor, fontSize = 20.sp)
                     }
                 }
             )
@@ -106,7 +116,7 @@ fun PresetListScreen(
         floatingActionButton = {
             FloatingActionButton(
                 onClick = onCreatePreset,
-                containerColor = Color(0xFFE57373)
+                containerColor = accentColor
             ) {
                 Icon(Icons.Default.Add, contentDescription = "新建", tint = Color.White)
             }
@@ -115,7 +125,7 @@ fun PresetListScreen(
         Column(
             modifier = Modifier
                 .fillMaxSize()
-                .background(Color(0xFF1E1E1E))
+                .background(bgColor)
                 .padding(padding)
         ) {
             if (presets.isEmpty()) {
@@ -128,13 +138,13 @@ fun PresetListScreen(
                         Text(
                             "暂无预设",
                             fontSize = 18.sp,
-                            color = Color.Gray
+                            color = textSecondary
                         )
                         Spacer(modifier = Modifier.height(8.dp))
                         Text(
                             "点击 + 创建一个预设",
                             fontSize = 14.sp,
-                            color = Color.Gray
+                            color = textSecondary
                         )
                     }
                 }
@@ -148,6 +158,7 @@ fun PresetListScreen(
                         PresetCard(
                             preset = preset,
                             isSelected = preset.id == selectedId,
+                            isDarkTheme = isDarkTheme,
                             onSelect = { onSelectPreset(preset) },
                             onEdit = { onEditPreset(preset) },
                             onDelete = { onDeletePreset(preset) }
@@ -163,19 +174,26 @@ fun PresetListScreen(
 fun PresetCard(
     preset: TimerPreset,
     isSelected: Boolean,
+    isDarkTheme: Boolean,
     onSelect: () -> Unit,
     onEdit: () -> Unit,
     onDelete: () -> Unit
 ) {
-    val borderColor = if (isSelected) Color(0xFF81C784) else Color.Transparent
+    val surfaceColor = if (isDarkTheme) Color(0xFF2D2D2D) else Color.White
+    val textColor = if (isDarkTheme) Color.White else Color(0xFF1E1E1E)
+    val textSecondary = if (isDarkTheme) Color(0xFF9E9E9E) else Color(0xFF757575)
+    val accentColor = Color(0xFFE57373)
+    val successColor = Color(0xFF81C784)
+
+    val borderColor = if (isSelected) successColor else Color.Transparent
     val borderWidth = if (isSelected) 2.dp else 0.dp
-    
+
     Card(
         modifier = Modifier
             .fillMaxWidth()
             .clickable { onSelect() },
         shape = RoundedCornerShape(12.dp),
-        colors = CardDefaults.cardColors(containerColor = Color(0xFF2D2D2D)),
+        colors = CardDefaults.cardColors(containerColor = surfaceColor),
         border = if (isSelected) {
             androidx.compose.foundation.BorderStroke(borderWidth, borderColor)
         } else null
@@ -190,33 +208,33 @@ fun PresetCard(
                     text = preset.name,
                     fontSize = 18.sp,
                     fontWeight = FontWeight.Bold,
-                    color = Color.White
+                    color = textColor
                 )
                 if (isSelected) {
                     Text(
                         text = "✓ 已选中",
                         fontSize = 12.sp,
-                        color = Color(0xFF81C784)
+                        color = successColor
                     )
                 }
             }
-            
+
             Spacer(modifier = Modifier.height(8.dp))
-            
+
             Text(
                 text = "工作 ${preset.workMinutes}分${preset.workSeconds}秒 | 休息 ${preset.breakMinutes}分${preset.breakSeconds}秒",
                 fontSize = 14.sp,
-                color = Color(0xFFE57373)
+                color = accentColor
             )
-            
+
             Text(
                 text = "循环 ${preset.loops} 次 | ${if (preset.autoStart) "自动开始" else "手动开始"}",
                 fontSize = 12.sp,
-                color = Color.Gray
+                color = textSecondary
             )
-            
+
             Spacer(modifier = Modifier.height(8.dp))
-            
+
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.End
@@ -225,14 +243,14 @@ fun PresetCard(
                     Icon(
                         Icons.Default.Edit,
                         contentDescription = "编辑",
-                        tint = Color(0xFF81C784)
+                        tint = successColor
                     )
                 }
                 IconButton(onClick = onDelete) {
                     Icon(
                         Icons.Default.Delete,
                         contentDescription = "删除",
-                        tint = Color(0xFFE57373)
+                        tint = accentColor
                     )
                 }
             }

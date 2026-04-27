@@ -10,12 +10,12 @@ package com.looptimer
  * - PATCH: 补丁版本号，每次构建前递增
  *
  * 注意: 此文件版本号需与 gradle.properties 保持同步
- *       VERSION_NAME=1.0.1 对应 MAJOR=1, MINOR=0, PATCH=1
+ *       VERSION_NAME=1.0.2 对应 MAJOR=1, MINOR=0, PATCH=2
  */
 object VERSION {
     const val MAJOR = 1
     const val MINOR = 0
-    const val PATCH = 1  // 1.0.1，与 gradle.properties VERSION_PATCH 同步
+    const val PATCH = 2  // 1.0.2，与 gradle.properties VERSION_PATCH 同步
 
     const val NAME = "$MAJOR.$MINOR.$PATCH"
 }

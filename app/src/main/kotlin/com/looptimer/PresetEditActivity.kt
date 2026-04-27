@@ -24,22 +24,25 @@ import androidx.compose.ui.unit.sp
 import java.util.UUID
 
 class PresetEditActivity : ComponentActivity() {
-    
+
     private lateinit var presetsManager: PresetsManager
     private var editingPreset: TimerPreset? = null
-    
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        
+
         presetsManager = PresetsManager(this)
-        
+
         // 获取编辑的预设 ID
         val presetId = intent.getStringExtra(EXTRA_PRESET_ID)
         editingPreset = presetId?.let { presetsManager.getPreset(it) }
-        
+
+        val isDark = presetsManager.isDarkTheme()
+
         setContent {
             MaterialTheme {
                 PresetEditScreen(
+                    isDarkTheme = isDark,
                     editingPreset = editingPreset,
                     onSave = { preset ->
                         if (editingPreset != null) {
@@ -58,7 +61,7 @@ class PresetEditActivity : ComponentActivity() {
             }
         }
     }
-    
+
     companion object {
         const val EXTRA_PRESET_ID = "preset_id"
     }
@@ -67,12 +70,21 @@ class PresetEditActivity : ComponentActivity() {
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun PresetEditScreen(
+    isDarkTheme: Boolean,
     editingPreset: TimerPreset?,
     onSave: (TimerPreset) -> Unit,
     onCancel: () -> Unit
 ) {
     val context = LocalContext.current
-    
+
+    val bgColor = if (isDarkTheme) Color(0xFF1E1E1E) else Color(0xFFF5F5F5)
+    val surfaceColor = if (isDarkTheme) Color(0xFF2D2D2D) else Color.White
+    val textColor = if (isDarkTheme) Color.White else Color(0xFF1E1E1E)
+    val textSecondary = if (isDarkTheme) Color(0xFF9E9E9E) else Color(0xFF757575)
+    val accentColor = Color(0xFFE57373)
+    val successColor = Color(0xFF81C784)
+    val inputBorderColor = if (isDarkTheme) Color.Gray else Color(0xFF9E9E9E)
+
     var name by remember { mutableStateOf(editingPreset?.name ?: "") }
     var workMinutes by remember { mutableIntStateOf(editingPreset?.workMinutes ?: 25) }
     var workSeconds by remember { mutableIntStateOf(editingPreset?.workSeconds ?: 0) }
@@ -82,18 +94,18 @@ fun PresetEditScreen(
     var useAlarm by remember { mutableStateOf(editingPreset?.useAlarm ?: true) }
     var alarmDuration by remember { mutableIntStateOf(editingPreset?.alarmDuration ?: 30) }
     var autoStart by remember { mutableStateOf(editingPreset?.autoStart ?: false) }
-    
+
     Scaffold(
         topBar = {
             TopAppBar(
-                title = { Text(if (editingPreset != null) "编辑预设" else "新建预设") },
+                title = { Text(if (editingPreset != null) "编辑预设" else "新建预设", color = textColor) },
                 colors = TopAppBarDefaults.topAppBarColors(
-                    containerColor = Color(0xFF2D2D2D),
-                    titleContentColor = Color.White
+                    containerColor = surfaceColor,
+                    titleContentColor = textColor
                 ),
                 actions = {
                     TextButton(onClick = onCancel) {
-                        Text("取消", color = Color.White)
+                        Text("取消", color = textColor)
                     }
                     TextButton(
                         onClick = {
@@ -116,7 +128,7 @@ fun PresetEditScreen(
                             onSave(preset)
                         }
                     ) {
-                        Text("保存", color = Color(0xFF81C784))
+                        Text("保存", color = successColor)
                     }
                 }
             )
@@ -125,7 +137,7 @@ fun PresetEditScreen(
         Column(
             modifier = Modifier
                 .fillMaxSize()
-                .background(Color(0xFF1E1E1E))
+                .background(bgColor)
                 .padding(padding)
                 .padding(16.dp)
                 .verticalScroll(rememberScrollState()),
@@ -135,91 +147,103 @@ fun PresetEditScreen(
             OutlinedTextField(
                 value = name,
                 onValueChange = { name = it },
-                label = { Text("预设名称", color = Color.White) },
-                placeholder = { Text("例如: 番茄工作法", color = Color.Gray) },
+                label = { Text("预设名称", color = textColor) },
+                placeholder = { Text("例如: 番茄工作法", color = textSecondary) },
                 modifier = Modifier.fillMaxWidth(),
                 colors = OutlinedTextFieldDefaults.colors(
-                    focusedTextColor = Color.White,
-                    unfocusedTextColor = Color.White,
-                    focusedBorderColor = Color(0xFFE57373),
-                    unfocusedBorderColor = Color.Gray,
-                    focusedLabelColor = Color.White,
-                    unfocusedLabelColor = Color.White
+                    focusedTextColor = textColor,
+                    unfocusedTextColor = textColor,
+                    focusedBorderColor = accentColor,
+                    unfocusedBorderColor = textSecondary,
+                    focusedLabelColor = textColor,
+                    unfocusedLabelColor = textColor
                 )
             )
-            
+
             Spacer(modifier = Modifier.height(24.dp))
-            
+
             // 预设卡片
             Card(
                 modifier = Modifier.fillMaxWidth(),
-                colors = CardDefaults.cardColors(containerColor = Color(0xFF2D2D2D))
+                colors = CardDefaults.cardColors(containerColor = surfaceColor)
             ) {
                 Column(modifier = Modifier.padding(16.dp)) {
-                    Text("时间设置", fontSize = 16.sp, fontWeight = FontWeight.Bold, color = Color.White)
-                    
+                    Text("时间设置", fontSize = 16.sp, fontWeight = FontWeight.Bold, color = textColor)
+
                     Spacer(modifier = Modifier.height(16.dp))
-                    
+
                     // 工作时长
                     PresetTimeInputRow(
                         label = "工作时长",
                         minutes = workMinutes,
                         seconds = workSeconds,
+                        textColor = textColor,
+                        accentColor = accentColor,
+                        inputBorderColor = inputBorderColor,
                         onMinutesChange = { workMinutes = it },
                         onSecondsChange = { workSeconds = it }
                     )
-                    
+
                     Spacer(modifier = Modifier.height(12.dp))
-                    
+
                     // 休息时长
                     PresetTimeInputRowWithReset(
                         label = "休息时长",
                         minutes = breakMinutes,
                         seconds = breakSeconds,
+                        textColor = textColor,
+                        accentColor = accentColor,
+                        inputBorderColor = inputBorderColor,
                         onMinutesChange = { breakMinutes = it },
                         onSecondsChange = { breakSeconds = it }
                     )
-                    
+
                     Spacer(modifier = Modifier.height(12.dp))
-                    
+
                     // 循环次数
                     PresetLoopInputRow(
                         loops = loops,
+                        textColor = textColor,
+                        successColor = successColor,
                         onLoopsChange = { loops = it }
                     )
-                    
+
                     Spacer(modifier = Modifier.height(16.dp))
-                    
-                    Divider(color = Color.Gray)
-                    
+
+                    HorizontalDivider(color = textSecondary)
+
                     Spacer(modifier = Modifier.height(16.dp))
-                    
+
                     // 闹钟设置
                     PresetAlarmSettingsPanel(
                         useAlarm = useAlarm,
+                        textColor = textColor,
+                        textSecondary = textSecondary,
+                        accentColor = accentColor,
+                        inputBorderColor = inputBorderColor,
                         onUseAlarmChange = { useAlarm = it },
                         alarmDuration = alarmDuration,
                         onAlarmDurationChange = { alarmDuration = it }
                     )
-                    
+
                     Spacer(modifier = Modifier.height(16.dp))
-                    
-                    Divider(color = Color.Gray)
-                    
+
+                    HorizontalDivider(color = textSecondary)
+
                     Spacer(modifier = Modifier.height(16.dp))
-                    
+
                     // 自动开始
                     Row(
                         modifier = Modifier.fillMaxWidth(),
                         horizontalArrangement = Arrangement.SpaceBetween,
                         verticalAlignment = Alignment.CenterVertically
                     ) {
-                        Text("自动开始", color = Color.White, fontSize = 16.sp)
+                        Text("自动开始", color = textColor, fontSize = 16.sp)
                         Switch(
                             checked = autoStart,
                             onCheckedChange = { autoStart = it },
                             colors = SwitchDefaults.colors(
-                                checkedThumbColor = Color(0xFF81C784),
+                                checkedThumbColor = successColor,
                                 checkedTrackColor = Color(0xFF4CAF50)
                             )
                         )
@@ -235,6 +259,9 @@ fun PresetTimeInputRow(
     label: String,
     minutes: Int,
     seconds: Int,
+    textColor: Color,
+    accentColor: Color,
+    inputBorderColor: Color,
     onMinutesChange: (Int) -> Unit,
     onSecondsChange: (Int) -> Unit
 ) {
@@ -243,20 +270,26 @@ fun PresetTimeInputRow(
         horizontalArrangement = Arrangement.SpaceBetween,
         verticalAlignment = Alignment.CenterVertically
     ) {
-        Text(label, color = Color.White, fontSize = 16.sp)
+        Text(label, color = textColor, fontSize = 16.sp)
         Row(verticalAlignment = Alignment.CenterVertically) {
             PresetNumberInput(
                 value = minutes,
+                textColor = textColor,
+                accentColor = accentColor,
+                unfocusedBorderColor = inputBorderColor,
                 onValueChange = { if (it in 0..59) onMinutesChange(it) },
                 range = 0..59
             )
-            Text(" 分 ", color = Color.White, fontSize = 14.sp)
+            Text(" 分 ", color = textColor, fontSize = 14.sp)
             PresetNumberInput(
                 value = seconds,
+                textColor = textColor,
+                accentColor = accentColor,
+                unfocusedBorderColor = inputBorderColor,
                 onValueChange = { if (it in 0..59) onSecondsChange(it) },
                 range = 0..59
             )
-            Text(" 秒", color = Color.White, fontSize = 14.sp)
+            Text(" 秒", color = textColor, fontSize = 14.sp)
         }
     }
 }
@@ -266,6 +299,9 @@ fun PresetTimeInputRowWithReset(
     label: String,
     minutes: Int,
     seconds: Int,
+    textColor: Color,
+    accentColor: Color,
+    inputBorderColor: Color,
     onMinutesChange: (Int) -> Unit,
     onSecondsChange: (Int) -> Unit
 ) {
@@ -274,7 +310,7 @@ fun PresetTimeInputRowWithReset(
         horizontalArrangement = Arrangement.SpaceBetween,
         verticalAlignment = Alignment.CenterVertically
     ) {
-        Text(label, color = Color.White, fontSize = 16.sp)
+        Text(label, color = textColor, fontSize = 16.sp)
         Row(verticalAlignment = Alignment.CenterVertically) {
             Text(
                 text = "[归零]",
@@ -288,16 +324,22 @@ fun PresetTimeInputRowWithReset(
             Spacer(modifier = Modifier.width(8.dp))
             PresetNumberInput(
                 value = minutes,
+                textColor = textColor,
+                accentColor = accentColor,
+                unfocusedBorderColor = inputBorderColor,
                 onValueChange = { if (it in 0..59) onMinutesChange(it) },
                 range = 0..59
             )
-            Text(" 分 ", color = Color.White, fontSize = 14.sp)
+            Text(" 分 ", color = textColor, fontSize = 14.sp)
             PresetNumberInput(
                 value = seconds,
+                textColor = textColor,
+                accentColor = accentColor,
+                unfocusedBorderColor = inputBorderColor,
                 onValueChange = { if (it in 0..59) onSecondsChange(it) },
                 range = 0..59
             )
-            Text(" 秒", color = Color.White, fontSize = 14.sp)
+            Text(" 秒", color = textColor, fontSize = 14.sp)
         }
     }
 }
@@ -305,6 +347,9 @@ fun PresetTimeInputRowWithReset(
 @Composable
 fun PresetNumberInput(
     value: Int,
+    textColor: Color,
+    accentColor: Color,
+    unfocusedBorderColor: Color,
     onValueChange: (Int) -> Unit,
     range: IntRange
 ) {
@@ -317,12 +362,12 @@ fun PresetNumberInput(
             }
         },
         modifier = Modifier.width(60.dp),
-        textStyle = LocalTextStyle.current.copy(fontSize = 14.sp, color = Color.White),
+        textStyle = LocalTextStyle.current.copy(fontSize = 14.sp, color = textColor),
         keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
         singleLine = true,
         colors = OutlinedTextFieldDefaults.colors(
-            focusedBorderColor = Color(0xFFE57373),
-            unfocusedBorderColor = Color.Gray
+            focusedBorderColor = accentColor,
+            unfocusedBorderColor = unfocusedBorderColor
         )
     )
 }
@@ -330,6 +375,8 @@ fun PresetNumberInput(
 @Composable
 fun PresetLoopInputRow(
     loops: Int,
+    textColor: Color,
+    successColor: Color,
     onLoopsChange: (Int) -> Unit
 ) {
     Row(
@@ -337,22 +384,22 @@ fun PresetLoopInputRow(
         horizontalArrangement = Arrangement.SpaceBetween,
         verticalAlignment = Alignment.CenterVertically
     ) {
-        Text("循环次数", color = Color.White, fontSize = 16.sp)
+        Text("循环次数", color = textColor, fontSize = 16.sp)
         Row(verticalAlignment = Alignment.CenterVertically) {
             IconButton(
                 onClick = { if (loops > 1) onLoopsChange(loops - 1) },
                 enabled = loops > 1
             ) {
-                Text("-", color = if (loops > 1) Color.White else Color.Gray, fontSize = 24.sp)
+                Text("-", color = if (loops > 1) textColor else Color.Gray, fontSize = 24.sp)
             }
             Text(
                 text = loops.toString(),
-                color = Color.White,
+                color = textColor,
                 fontSize = 18.sp,
                 modifier = Modifier.padding(horizontal = 16.dp)
             )
             IconButton(onClick = { if (loops < 99) onLoopsChange(loops + 1) }) {
-                Text("+", color = Color(0xFF81C784), fontSize = 24.sp)
+                Text("+", color = successColor, fontSize = 24.sp)
             }
         }
     }
@@ -361,6 +408,10 @@ fun PresetLoopInputRow(
 @Composable
 fun PresetAlarmSettingsPanel(
     useAlarm: Boolean,
+    textColor: Color,
+    textSecondary: Color,
+    accentColor: Color,
+    inputBorderColor: Color,
     onUseAlarmChange: (Boolean) -> Unit,
     alarmDuration: Int,
     onAlarmDurationChange: (Int) -> Unit
@@ -371,17 +422,17 @@ fun PresetAlarmSettingsPanel(
             horizontalArrangement = Arrangement.SpaceBetween,
             verticalAlignment = Alignment.CenterVertically
         ) {
-            Text("闹钟", color = Color.White, fontSize = 16.sp)
+            Text("闹钟", color = textColor, fontSize = 16.sp)
             Switch(
                 checked = useAlarm,
                 onCheckedChange = { onUseAlarmChange(it) },
                 colors = SwitchDefaults.colors(
-                    checkedThumbColor = Color(0xFFE57373),
+                    checkedThumbColor = accentColor,
                     checkedTrackColor = Color(0xFFFF5252)
                 )
             )
         }
-        
+
         if (useAlarm) {
             Spacer(modifier = Modifier.height(8.dp))
             Row(
@@ -389,14 +440,17 @@ fun PresetAlarmSettingsPanel(
                 horizontalArrangement = Arrangement.SpaceBetween,
                 verticalAlignment = Alignment.CenterVertically
             ) {
-                Text("闹钟时长", color = Color.White, fontSize = 14.sp)
+                Text("闹钟时长", color = textColor, fontSize = 14.sp)
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     PresetNumberInput(
                         value = alarmDuration,
+                        textColor = textColor,
+                        accentColor = accentColor,
+                        unfocusedBorderColor = inputBorderColor,
                         onValueChange = { if (it in 1..300) onAlarmDurationChange(it) },
                         range = 1..300
                     )
-                    Text(" 秒", color = Color.White, fontSize = 14.sp)
+                    Text(" 秒", color = textColor, fontSize = 14.sp)
                 }
             }
         }
