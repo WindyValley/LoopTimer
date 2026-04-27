@@ -8,12 +8,19 @@ android {
     namespace = "com.looptimer"
     compileSdk = 35
 
+    // 版本号从 gradle.properties 读取
+    val major = project.property("VERSION_MAJOR").toString().toInt()
+    val minor = project.property("VERSION_MINOR").toString().toInt()
+    val patch = project.property("VERSION_PATCH").toString().toInt()
+    val versionName = project.property("VERSION_NAME").toString()
+    val versionCode = major * 10000 + minor * 100 + patch
+
     defaultConfig {
         applicationId = "com.looptimer"
         minSdk = 26
         targetSdk = 34
-        versionCode = 1
-        versionName = "1.0"
+        this.versionCode = versionCode
+        this.versionName = versionName
     }
 
     buildFeatures {
