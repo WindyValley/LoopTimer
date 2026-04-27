@@ -5,6 +5,7 @@ import android.widget.Toast
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -275,6 +276,16 @@ fun PresetTimeInputRowWithReset(
     ) {
         Text(label, color = Color.White, fontSize = 16.sp)
         Row(verticalAlignment = Alignment.CenterVertically) {
+            Text(
+                text = "[归零]",
+                color = Color(0xFFFFB74D),
+                fontSize = 12.sp,
+                modifier = Modifier.clickable {
+                    onMinutesChange(0)
+                    onSecondsChange(0)
+                }
+            )
+            Spacer(modifier = Modifier.width(8.dp))
             PresetNumberInput(
                 value = minutes,
                 onValueChange = { if (it in 0..59) onMinutesChange(it) },
@@ -287,13 +298,6 @@ fun PresetTimeInputRowWithReset(
                 range = 0..59
             )
             Text(" 秒", color = Color.White, fontSize = 14.sp)
-            Spacer(modifier = Modifier.width(8.dp))
-            TextButton(onClick = {
-                onMinutesChange(0)
-                onSecondsChange(0)
-            }) {
-                Text("归零", color = Color(0xFFE57373), fontSize = 12.sp)
-            }
         }
     }
 }

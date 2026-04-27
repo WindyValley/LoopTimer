@@ -167,12 +167,27 @@ class PresetsManager(context: Context) {
     fun getSettingsTimestamp(): Long {
         return prefs.getLong(KEY_SETTINGS_TIMESTAMP, 0L)
     }
-    
+
+    /**
+     * 获取主题设置（true=深色，false=浅色）
+     */
+    fun isDarkTheme(): Boolean {
+        return prefs.getBoolean(KEY_DARK_THEME, true)
+    }
+
+    /**
+     * 保存主题设置
+     */
+    fun setDarkTheme(isDark: Boolean) {
+        prefs.edit().putBoolean(KEY_DARK_THEME, isDark).apply()
+    }
+
     companion object {
         private const val PREFS_NAME = "looptimer_presets"
         private const val KEY_PRESETS = "presets"
         private const val KEY_SELECTED_PRESET = "selected_preset"
         private const val KEY_CURRENT_SETTINGS = "current_settings"
         private const val KEY_SETTINGS_TIMESTAMP = "settings_timestamp"
+        private const val KEY_DARK_THEME = "dark_theme"
     }
 }

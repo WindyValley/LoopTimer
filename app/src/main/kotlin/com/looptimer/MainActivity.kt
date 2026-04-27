@@ -274,12 +274,12 @@ fun LoopTimerScreen(
     val context = LocalContext.current
     var contextForService by remember { mutableStateOf<Context?>(null) }
     val lifecycleOwner = LocalLifecycleOwner.current
-    
+
     DisposableEffect(Unit) {
         contextForService = context
         onDispose { }
     }
-    
+
     // 监听 onResume 事件，当从预设列表返回时重新加载设置
     var resumeTrigger by remember { mutableIntStateOf(0) }
     DisposableEffect(lifecycleOwner) {
@@ -293,11 +293,20 @@ fun LoopTimerScreen(
             lifecycleOwner.lifecycle.removeObserver(observer)
         }
     }
-    
+
     // 初始化 PresetsManager
     val presetsManager = remember { PresetsManager(context) }
     var lastSettingsTimestamp by remember { mutableLongStateOf(0L) }
-    
+
+    // 主题状态
+    var isDarkTheme by remember { mutableStateOf(presetsManager.isDarkTheme()) }
+
+    // 主题颜色辅助
+    val bgColor = if (isDarkTheme) Color(0xFF1E1E1E) else Color(0xFFF5F5F5)
+    val surfaceColor = if (isDarkTheme) Color(0xFF2D2D2D) else Color.White
+    val textColor = if (isDarkTheme) Color.White else Color(0xFF1E1E1E)
+    val textSecondary = if (isDarkTheme) Color(0xFF9E9E9E) else Color(0xFF757575)
+
     var workMinutes by remember { mutableStateOf(25L) }
     var workSeconds by remember { mutableStateOf(0L) }
     var breakMinutes by remember { mutableStateOf(5L) }
@@ -311,7 +320,7 @@ fun LoopTimerScreen(
     var autoStart by remember { mutableStateOf(true) }
     var alarmDuration by remember { mutableIntStateOf(10) }
     var alarmPlaying by remember { mutableStateOf(false) }
-    
+
     // 加载保存的计时器设置（每次 onResume 都检查更新）
     LaunchedEffect(resumeTrigger) {
         val timestamp = presetsManager.getSettingsTimestamp()
@@ -608,19 +617,34 @@ fun LoopTimerScreen(
     Column(
         modifier = Modifier
             .fillMaxSize()
-            .background(Color(0xFF1E1E1E))
+            .background(bgColor)
             .padding(24.dp),
         horizontalAlignment = Alignment.CenterHorizontally
     ) {
-        Text(
-            text = "循环计时器",
-            fontSize = 28.sp,
-            fontWeight = FontWeight.Bold,
-            color = Color.White
-        )
-        
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Text(
+                text = "循环计时器",
+                fontSize = 28.sp,
+                fontWeight = FontWeight.Bold,
+                color = textColor
+            )
+            IconButton(onClick = {
+                isDarkTheme = !isDarkTheme
+                presetsManager.setDarkTheme(isDarkTheme)
+            }) {
+                Text(
+                    text = if (isDarkTheme) "☀️" else "🌙",
+                    fontSize = 24.sp
+                )
+            }
+        }
+
         Spacer(modifier = Modifier.height(8.dp))
-        
+
         Text(
             text = "第 $currentLoop / $loops 轮 | ${if (isWorkPhase) "工作" else "休息"}",
             fontSize = 16.sp,
@@ -731,7 +755,7 @@ fun LoopTimerScreen(
             modifier = Modifier
                 .fillMaxWidth()
                 .heightIn(max = 300.dp),
-            colors = CardDefaults.cardColors(containerColor = Color(0xFF2D2D2D))
+            colors = CardDefaults.cardColors(containerColor = surfaceColor)
         ) {
             Column(
                 modifier = Modifier
@@ -799,7 +823,7 @@ fun LoopTimerScreen(
                 Text(
                     text = "版本 ${VERSION.NAME}",
                     fontSize = 12.sp,
-                    color = Color.Gray,
+                    color = textSecondary,
                     modifier = Modifier.fillMaxWidth(),
                     textAlign = androidx.compose.ui.text.style.TextAlign.Center
                 )
