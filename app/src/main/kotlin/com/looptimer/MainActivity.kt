@@ -45,6 +45,9 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.core.app.NotificationCompat
 import androidx.core.content.ContextCompat
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.LifecycleEventObserver
+import androidx.compose.ui.platform.LocalLifecycleOwner
 import kotlinx.coroutines.*
 
 // Shared state for notification click handling
@@ -57,8 +60,14 @@ class MainActivity : ComponentActivity() {
         ActivityResultContracts.RequestPermission()
     ) { _: Boolean -> }
     
+    private lateinit var presetsManager: PresetsManager
+    private var contextForService: Context? = null
+    
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        
+        presetsManager = PresetsManager(this)
+        contextForService = this
         
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
             if (ContextCompat.checkSelfPermission(this, Manifest.permission.POST_NOTIFICATIONS) 
@@ -264,11 +273,30 @@ fun LoopTimerScreen(
 ) {
     val context = LocalContext.current
     var contextForService by remember { mutableStateOf<Context?>(null) }
+    val lifecycleOwner = LocalLifecycleOwner.current
     
     DisposableEffect(Unit) {
         contextForService = context
         onDispose { }
     }
+    
+    // 监听 onResume 事件，当从预设列表返回时重新加载设置
+    var resumeTrigger by remember { mutableIntStateOf(0) }
+    DisposableEffect(lifecycleOwner) {
+        val observer = LifecycleEventObserver { _, event ->
+            if (event == Lifecycle.Event.ON_RESUME) {
+                resumeTrigger++
+            }
+        }
+        lifecycleOwner.lifecycle.addObserver(observer)
+        onDispose {
+            lifecycleOwner.lifecycle.removeObserver(observer)
+        }
+    }
+    
+    // 初始化 PresetsManager
+    val presetsManager = remember { PresetsManager(context) }
+    var lastSettingsTimestamp by remember { mutableLongStateOf(0L) }
     
     var workMinutes by remember { mutableStateOf(25L) }
     var workSeconds by remember { mutableStateOf(0L) }
@@ -283,6 +311,28 @@ fun LoopTimerScreen(
     var autoStart by remember { mutableStateOf(true) }
     var alarmDuration by remember { mutableIntStateOf(10) }
     var alarmPlaying by remember { mutableStateOf(false) }
+    
+    // 加载保存的计时器设置（每次 onResume 都检查更新）
+    LaunchedEffect(resumeTrigger) {
+        val timestamp = presetsManager.getSettingsTimestamp()
+        if (timestamp > lastSettingsTimestamp) {
+            val settings = presetsManager.getCurrentTimerSettings()
+            settings?.let {
+                workMinutes = it.workMinutes.toLong()
+                workSeconds = it.workSeconds.toLong()
+                breakMinutes = it.breakMinutes.toLong()
+                breakSeconds = it.breakSeconds.toLong()
+                loops = it.loops
+                useAlarm = it.useAlarm
+                alarmDuration = it.alarmDuration
+                autoStart = it.autoStart
+                currentLoop = 1
+                isWorkPhase = true
+                timeLeft = workMinutes * 60 + workSeconds
+            }
+            lastSettingsTimestamp = timestamp
+        }
+    }
     
     val scope = rememberCoroutineScope()
     var timerJob by remember { mutableStateOf<Job?>(null) }
@@ -664,6 +714,19 @@ fun LoopTimerScreen(
         
         Spacer(modifier = Modifier.height(32.dp))
         
+        // 预设管理按钮
+        OutlinedButton(
+            onClick = {
+                val intent = Intent(context, PresetListActivity::class.java)
+                context.startActivity(intent)
+            },
+            modifier = Modifier.fillMaxWidth()
+        ) {
+            Text("📁 预设管理", fontSize = 16.sp)
+        }
+        
+        Spacer(modifier = Modifier.height(16.dp))
+        
         Card(
             modifier = Modifier
                 .fillMaxWidth()
@@ -730,6 +793,16 @@ fun LoopTimerScreen(
                         )
                     )
                 }
+                
+                Spacer(modifier = Modifier.height(16.dp))
+                
+                Text(
+                    text = "版本 ${VERSION.NAME}",
+                    fontSize = 12.sp,
+                    color = Color.Gray,
+                    modifier = Modifier.fillMaxWidth(),
+                    textAlign = androidx.compose.ui.text.style.TextAlign.Center
+                )
             }
         }
     }
