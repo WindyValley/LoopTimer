@@ -35,6 +35,34 @@ android {
     kotlinOptions {
         jvmTarget = "17"
     }
+
+    // Release 签名配置
+    signingConfigs {
+        create("release") {
+            // 环境变量: ANDROID_SIGNING_*
+            storeFile = file("keystore.jks")
+            storePassword = System.getenv("ANDROID_SIGNING_STORE_PASSWORD") ?: ""
+            keyAlias = System.getenv("ANDROID_SIGNING_KEY_ALIAS") ?: ""
+            keyPassword = System.getenv("ANDROID_SIGNING_KEY_PASSWORD") ?: ""
+        }
+    }
+
+    buildTypes {
+        release {
+            isMinifyEnabled = true
+            proguardFiles(
+                getDefaultProguardFile("proguard-android-optimize.txt"),
+                "proguard-rules.pro"
+            )
+            // 如果 keystore 存在则使用签名
+            if (file("keystore.jks").exists()) {
+                signingConfig = signingConfigs.getByName("release")
+            }
+        }
+        debug {
+            isMinifyEnabled = false
+        }
+    }
 }
 
 dependencies {
