@@ -829,7 +829,7 @@ fun LoopTimerScreen(
                 Spacer(modifier = Modifier.height(16.dp))
                 
                 Text(
-                    text = "版本 ${VERSION.NAME}",
+                    text = "版本 ${BuildConfig.VERSION_NAME}",
                     fontSize = 12.sp,
                     color = textSecondary,
                     modifier = Modifier.fillMaxWidth(),
