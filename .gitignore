@@ -6,6 +6,12 @@
 # Local SDK / machine-specific config
 local.properties
 
+# Local AI agent / assistant notes - contain machine-specific paths, keep out of the repo
+AGENTS.md
+CLAUDE.md
+.claude/
+.opencode/
+
 # Signing material - NEVER commit
 *.jks
 *.keystore
