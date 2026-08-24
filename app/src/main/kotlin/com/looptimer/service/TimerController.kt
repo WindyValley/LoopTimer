@@ -61,9 +61,20 @@ class TimerController(
     private val _events = MutableSharedFlow<TimerEvent>(extraBufferCapacity = 16)
     val events: SharedFlow<TimerEvent> = _events.asSharedFlow()
 
+    /**
+     * Whether the alarm is currently ringing, as observable state.
+     *
+     * Exposed separately from [events] because the UI needs the *current* value on
+     * (re)composition, not just the transition. The old code polled a global singleton every
+     * 100 ms to approximate this.
+     */
+    private val _alarmRinging = MutableStateFlow(false)
+    val alarmRinging: StateFlow<Boolean> = _alarmRinging.asStateFlow()
+
     /** Monotonic instant at which the current phase ends; null when not counting down. */
     private var deadlineMs: Long? = null
     private var tickJob: Job? = null
+    private var alarmJob: Job? = null
 
     /**
      * Replaces the configuration.
@@ -94,6 +105,7 @@ class TimerController(
             _state.value = started
             return
         }
+        _alarmRinging.value = false
         _events.tryEmit(TimerEvent.StopAlarm)
         _state.value = started
         armDeadline(started.remainingSeconds)
@@ -114,6 +126,7 @@ class TimerController(
 
     fun reset() {
         stopTicking()
+        _alarmRinging.value = false
         _events.tryEmit(TimerEvent.StopAlarm)
         _state.value = TimerEngine.reset(_config.value)
     }
@@ -126,12 +139,17 @@ class TimerController(
 
     /** Stops the alarm without otherwise disturbing the timer. */
     fun stopAlarm() {
+        alarmJob?.cancel()
+        alarmJob = null
+        _alarmRinging.value = false
         _events.tryEmit(TimerEvent.StopAlarm)
     }
 
     /** Releases the ticker. The injected scope is owned by the host, so it is not cancelled here. */
     fun dispose() {
         stopTicking()
+        alarmJob?.cancel()
+        alarmJob = null
     }
 
     // ------------------------------------------------------------------ internals
@@ -189,7 +207,7 @@ class TimerController(
     private fun applyTransition(transition: com.looptimer.domain.Transition) {
         _state.value = transition.state
 
-        transition.effects.alarm?.let { _events.tryEmit(TimerEvent.StartAlarm(it)) }
+        transition.effects.alarm?.let { raiseAlarm(it) }
         transition.effects.notification?.let { _events.tryEmit(TimerEvent.PhaseEnded(it)) }
 
         if (transition.state.isRunning && transition.state.remainingSeconds > 0) {
@@ -197,6 +215,28 @@ class TimerController(
             launchTicker()
         } else {
             stopTicking()
+        }
+    }
+
+    /**
+     * Raises the alarm and, for a fixed-duration setting, schedules its stop.
+     *
+     * The auto-stop lives here rather than in the alarm player so it participates in structured
+     * concurrency; the previous implementation used a bare interruptible `Thread`.
+     */
+    private fun raiseAlarm(setting: AlarmSetting) {
+        alarmJob?.cancel()
+        _alarmRinging.value = true
+        _events.tryEmit(TimerEvent.StartAlarm(setting))
+
+        if (setting is AlarmSetting.Fixed) {
+            alarmJob = scope.launch {
+                delay(setting.seconds * 1000L)
+                _alarmRinging.value = false
+                _events.tryEmit(TimerEvent.StopAlarm)
+            }
+        } else {
+            alarmJob = null
         }
     }
 }

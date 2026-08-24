@@ -1,4 +1,60 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <string name="app_name">循环计时器</string>
+
+    <!-- Phases -->
+    <string name="phase_work">工作</string>
+    <string name="phase_break">休息</string>
+
+    <!-- Notification channels -->
+    <string name="channel_ongoing">计时器运行中</string>
+    <string name="channel_ongoing_desc">显示当前进度，保持计时器在后台运行</string>
+    <string name="channel_phase_end">阶段提醒</string>
+    <string name="channel_phase_end_desc">工作或休息结束时提醒</string>
+
+    <!-- Ongoing notification -->
+    <string name="notif_running_title">%1$s中</string>
+    <string name="notif_paused_title">已暂停 · %1$s</string>
+    <string name="notif_awaiting_title">待开始 · %1$s</string>
+    <string name="notif_running_body">剩余 %1$s · 第 %2$d / %3$d 轮</string>
+
+    <!-- Phase-end notification -->
+    <string name="notif_phase_end_title">%1$s结束</string>
+    <string name="notif_take_a_break">该休息一下了</string>
+    <string name="notif_back_to_work">继续工作吧</string>
+    <string name="notif_tap_to_continue">点击开始下一阶段</string>
+    <string name="notif_all_done_title">全部完成</string>
+    <string name="notif_all_done_body">所有循环已结束</string>
+
+    <!-- Actions -->
+    <string name="action_start">开始</string>
+    <string name="action_pause">暂停</string>
+    <string name="action_skip">跳过</string>
+    <string name="action_stop">停止</string>
+    <string name="action_reset">重置</string>
+    <string name="action_stop_alarm">停止闹钟</string>
+
+    <!-- Content descriptions -->
+    <string name="cd_toggle_theme">切换深色/浅色主题</string>
+    <string name="cd_timer_icon">计时器</string>
+
+    <!-- Settings labels -->
+    <string name="label_work_duration">工作时长</string>
+    <string name="label_break_duration">休息时长</string>
+    <string name="label_loops">循环次数</string>
+    <string name="label_alarm">闹钟</string>
+    <string name="label_alarm_duration">闹钟时长</string>
+    <string name="label_auto_start">自动开始</string>
+    <string name="label_settings">设置</string>
+    <string name="action_zero">归零</string>
+    <string name="unit_minute"> 分 </string>
+    <string name="unit_second"> 秒</string>
+    <string name="alarm_forever">一直响</string>
+    <string name="alarm_ringing">闹钟响起</string>
+
+    <!-- Home -->
+    <string name="home_title">循环计时器</string>
+    <string name="home_progress">第 %1$d / %2$d 轮 · %3$s</string>
+    <string name="home_presets">预设管理</string>
+    <string name="home_version">版本 %1$s</string>
 </resources>
