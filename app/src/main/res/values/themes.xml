@@ -1,5 +1,12 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
+    <!--
+      Light variant. values-night/themes.xml supplies the dark counterpart, so the window
+      background and system bars follow the system theme. Previously this was pinned to
+      Material.Light, leaving a light status bar while the app rendered its dark colour scheme.
+      Compose draws the actual UI colours; this style only governs the window itself.
+    -->
     <style name="Theme.LoopTimer" parent="android:Theme.Material.Light.NoActionBar">
+        <item name="android:windowBackground">@color/window_background</item>
     </style>
 </resources>

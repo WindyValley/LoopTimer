@@ -36,7 +36,6 @@
 
     <!-- Content descriptions -->
     <string name="cd_toggle_theme">切换深色/浅色主题</string>
-    <string name="cd_timer_icon">计时器</string>
 
     <!-- Settings labels -->
     <string name="label_work_duration">工作时长</string>
