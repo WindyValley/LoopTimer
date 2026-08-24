@@ -2,10 +2,10 @@ package com.looptimer.data
 
 import android.content.Context
 import android.content.SharedPreferences
-import android.util.Log
 import com.looptimer.domain.AlarmSetting
 import com.looptimer.domain.TimerConfig
 import com.looptimer.domain.TimerPreset
+import com.looptimer.util.Logger
 import java.util.UUID
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -146,7 +146,7 @@ class PresetsRepository private constructor(context: Context) {
                 decodePreset(obj)
             }
         } catch (e: Exception) {
-            Log.w(TAG, "Preset list unreadable; starting empty", e)
+            Logger.w(TAG, "Preset list unreadable; starting empty", e)
             emptyList()
         }
     }
@@ -156,7 +156,7 @@ class PresetsRepository private constructor(context: Context) {
         return try {
             decodeConfig(JSONObject(raw))
         } catch (e: Exception) {
-            Log.w(TAG, "Active config unreadable; using defaults", e)
+            Logger.w(TAG, "Active config unreadable; using defaults", e)
             TimerConfig()
         }
     }
@@ -215,7 +215,7 @@ class PresetsRepository private constructor(context: Context) {
                             .putString(KEY_ACTIVE_CONFIG, encodeConfig(it).toString())
                             .apply()
                     }
-                    .onFailure { Log.w(TAG, "Could not migrate legacy settings", it) }
+                    .onFailure { Logger.w(TAG, "Could not migrate legacy settings", it) }
             }
             // Preset records keep their key and field names, so they need no rewrite; the
             // alarmDuration = -1 sentinel is handled by AlarmSetting.fromLegacy on read.

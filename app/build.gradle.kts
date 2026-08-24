@@ -60,10 +60,10 @@ android {
 
     buildTypes {
         release {
-            // Minification is intentionally disabled for now: the previous ProGuard config
-            // kept every app + Compose class, so it carried all of the crash risk with none
-            // of the size benefit. Re-enabled in a later pass with rules that actually shrink.
-            isMinifyEnabled = false
+            // Minification is on with rules that actually shrink: the app uses no reflection,
+            // so no blanket -keep is needed. See proguard-rules.pro.
+            isMinifyEnabled = true
+            isShrinkResources = true
             proguardFiles(
                 getDefaultProguardFile("proguard-android-optimize.txt"),
                 "proguard-rules.pro"
@@ -102,8 +102,6 @@ gradle.taskGraph.whenReady {
 dependencies {
     implementation("androidx.core:core-ktx:1.15.0")
     implementation("androidx.lifecycle:lifecycle-runtime-ktx:2.8.7")
-    implementation("androidx.lifecycle:lifecycle-runtime-compose:2.8.7")
-    implementation("androidx.lifecycle:lifecycle-viewmodel-compose:2.8.7")
     implementation("androidx.activity:activity-compose:1.9.3")
     implementation(platform("androidx.compose:compose-bom:2024.12.01"))
     implementation("androidx.compose.ui:ui")

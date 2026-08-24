@@ -8,12 +8,20 @@ package com.looptimer.domain
  * represent a configuration the home screen allowed. Both screens now share these ranges.
  */
 object TimeRanges {
-    val MINUTES = 0..999
-    val SECONDS = 0..59
-    val LOOPS = 1..99
+
+    const val SECONDS_PER_MINUTE = 60
+
+    private const val MAX_MINUTES = 999
+    private const val MAX_SECONDS = SECONDS_PER_MINUTE - 1
+    private const val MAX_LOOPS = 99
+    private const val MAX_ALARM_SECONDS = 3600
+
+    val MINUTES = 0..MAX_MINUTES
+    val SECONDS = 0..MAX_SECONDS
+    val LOOPS = 1..MAX_LOOPS
 
     /** Bounds for a fixed-length alarm, in seconds. */
-    val ALARM_SECONDS = 1..3600
+    val ALARM_SECONDS = 1..MAX_ALARM_SECONDS
 
     fun coerceMinutes(value: Int): Int = value.coerceIn(MINUTES)
     fun coerceSeconds(value: Int): Int = value.coerceIn(SECONDS)

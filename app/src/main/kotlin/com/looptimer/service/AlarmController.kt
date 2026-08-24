@@ -8,7 +8,7 @@ import android.os.Build
 import android.os.VibrationEffect
 import android.os.Vibrator
 import android.os.VibratorManager
-import android.util.Log
+import com.looptimer.util.Logger
 
 /**
  * Plays the end-of-phase alarm.
@@ -44,7 +44,7 @@ class AlarmController(private val context: Context) {
 
         if (!soundOk && !vibrateOk) {
             // Nothing actually engaged - roll back so a later attempt is not blocked forever.
-            Log.w(TAG, "Alarm failed to engage; resetting state")
+            Logger.w(TAG, "Alarm failed to engage; resetting state")
             stop()
         }
     }
@@ -62,7 +62,7 @@ class AlarmController(private val context: Context) {
         val uri = RingtoneManager.getDefaultUri(RingtoneManager.TYPE_ALARM)
             ?: RingtoneManager.getDefaultUri(RingtoneManager.TYPE_NOTIFICATION)
             ?: run {
-                Log.w(TAG, "No alarm or notification sound available")
+                Logger.w(TAG, "No alarm or notification sound available")
                 return false
             }
 
@@ -76,7 +76,7 @@ class AlarmController(private val context: Context) {
                         .build()
                 )
                 setOnErrorListener { _, what, extra ->
-                    Log.w(TAG, "MediaPlayer error what=$what extra=$extra")
+                    Logger.w(TAG, "MediaPlayer error what=$what extra=$extra")
                     stop()
                     true
                 }
@@ -88,7 +88,7 @@ class AlarmController(private val context: Context) {
             synchronized(lock) { player = created }
             true
         } catch (e: Exception) {
-            Log.w(TAG, "Could not start alarm sound", e)
+            Logger.w(TAG, "Could not start alarm sound", e)
             releasePlayer()
             false
         }
@@ -110,7 +110,7 @@ class AlarmController(private val context: Context) {
             true
         }
     } catch (e: Exception) {
-        Log.w(TAG, "Could not start vibration", e)
+        Logger.w(TAG, "Could not start vibration", e)
         false
     }
 
@@ -119,12 +119,12 @@ class AlarmController(private val context: Context) {
         try {
             if (existing.isPlaying) existing.stop()
         } catch (e: IllegalStateException) {
-            Log.d(TAG, "MediaPlayer already stopped", e)
+            Logger.d(TAG, "MediaPlayer already stopped", e)
         }
         try {
             existing.release()
         } catch (e: Exception) {
-            Log.w(TAG, "MediaPlayer release failed", e)
+            Logger.w(TAG, "MediaPlayer release failed", e)
         }
     }
 
@@ -133,7 +133,7 @@ class AlarmController(private val context: Context) {
         try {
             existing.cancel()
         } catch (e: Exception) {
-            Log.w(TAG, "Vibration cancel failed", e)
+            Logger.w(TAG, "Vibration cancel failed", e)
         }
     }
 

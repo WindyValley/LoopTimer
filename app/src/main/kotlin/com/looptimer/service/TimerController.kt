@@ -155,7 +155,7 @@ class TimerController(
     // ------------------------------------------------------------------ internals
 
     private fun armDeadline(seconds: Int) {
-        deadlineMs = clock.elapsedRealtimeMs() + seconds * 1000L
+        deadlineMs = clock.elapsedRealtimeMs() + seconds * MILLIS_PER_SECOND
     }
 
     /** Remaining whole seconds implied by the deadline, rounded up so the UI shows a full second. */
@@ -163,8 +163,11 @@ class TimerController(
         val deadline = deadlineMs ?: return fallback
         val remainingMs = deadline - clock.elapsedRealtimeMs()
         if (remainingMs <= 0) return 0
-        return ((remainingMs + 999) / 1000).toInt()
+        return ceilToSeconds(remainingMs)
     }
+
+    private fun ceilToSeconds(millis: Long): Int =
+        ((millis + MILLIS_PER_SECOND - 1) / MILLIS_PER_SECOND).toInt()
 
     private fun stopTicking() {
         tickJob?.cancel()
@@ -175,24 +178,27 @@ class TimerController(
     private fun launchTicker() {
         tickJob?.cancel()
         tickJob = scope.launch {
-            while (isActive) {
+            // Loops until the deadline is cleared or the timer stops running; each iteration
+            // either publishes the derived remaining time or crosses a phase boundary.
+            while (isActive && _state.value.isRunning) {
                 val deadline = deadlineMs ?: break
-                val now = clock.elapsedRealtimeMs()
-                val remainingMs = deadline - now
+                val remainingMs = deadline - clock.elapsedRealtimeMs()
 
                 if (remainingMs <= 0) {
+                    // Crossing a boundary re-arms the deadline for the next phase (or stops).
                     onPhaseElapsed()
-                    if (!_state.value.isRunning) break
-                    continue
+                } else {
+                    // Publish the derived value, then sleep only until the next second boundary
+                    // so the display flips promptly without busy-waiting.
+                    _state.value = _state.value.copy(remainingSeconds = ceilToSeconds(remainingMs))
+                    val untilNextBoundary = remainingMs % MILLIS_PER_SECOND
+                    delay(
+                        max(
+                            1L,
+                            if (untilNextBoundary == 0L) MILLIS_PER_SECOND else untilNextBoundary
+                        )
+                    )
                 }
-
-                // Publish the derived value, then sleep only until the next second boundary
-                // so the display flips promptly without busy-waiting.
-                _state.value = _state.value.copy(
-                    remainingSeconds = ((remainingMs + 999) / 1000).toInt()
-                )
-                val untilNextBoundary = remainingMs % 1000L
-                delay(max(1L, if (untilNextBoundary == 0L) 1000L else untilNextBoundary))
             }
         }
     }
@@ -231,12 +237,16 @@ class TimerController(
 
         if (setting is AlarmSetting.Fixed) {
             alarmJob = scope.launch {
-                delay(setting.seconds * 1000L)
+                delay(setting.seconds * MILLIS_PER_SECOND)
                 _alarmRinging.value = false
                 _events.tryEmit(TimerEvent.StopAlarm)
             }
         } else {
             alarmJob = null
         }
+    }
+
+    private companion object {
+        const val MILLIS_PER_SECOND = 1000L
     }
 }

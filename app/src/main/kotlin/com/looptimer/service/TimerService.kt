@@ -8,14 +8,15 @@ import android.app.Service
 import android.content.Context
 import android.content.Intent
 import android.os.IBinder
-import android.util.Log
 import androidx.core.app.NotificationCompat
 import com.looptimer.MainActivity
 import com.looptimer.R
 import com.looptimer.data.PresetsRepository
 import com.looptimer.domain.Phase
+import com.looptimer.domain.TimeRanges
 import com.looptimer.domain.RunState
 import com.looptimer.domain.TimerState
+import com.looptimer.util.Logger
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
@@ -77,7 +78,7 @@ class TimerService : Service() {
         // fell through a `when (intent?.action)` without ever calling startForeground(), which
         // trips ForegroundServiceDidNotStartInTimeException. Handle it explicitly.
         if (intent == null) {
-            Log.i(TAG, "Restarted by system with null intent; restoring foreground state")
+            Logger.w(TAG, "Restarted by system with null intent; restoring foreground state")
             ensureForeground(controller.state.value)
             return START_NOT_STICKY
         }
@@ -98,7 +99,7 @@ class TimerService : Service() {
                 leaveForeground(removeNotification = true)
                 stopSelf()
             }
-            else -> Log.w(TAG, "Unknown action: ${intent.action}")
+            else -> Logger.w(TAG, "Unknown action: ${intent.action}")
         }
 
         // Deliberately NOT sticky: the timer's authoritative state is not restorable from an
@@ -148,7 +149,7 @@ class TimerService : Service() {
         } catch (e: Exception) {
             // Android 12+ throws ForegroundServiceStartNotAllowedException when we are started
             // from the background. Degrade to a plain notification rather than crashing.
-            Log.w(TAG, "Could not enter foreground; falling back to a plain notification", e)
+            Logger.w(TAG, "Could not enter foreground; falling back to a plain notification", e)
             notify(notification)
         }
     }
@@ -164,7 +165,7 @@ class TimerService : Service() {
         try {
             manager.notify(TimerNotifications.ID_ONGOING, notification)
         } catch (e: SecurityException) {
-            Log.w(TAG, "Notification permission not granted", e)
+            Logger.w(TAG, "Notification permission not granted", e)
         }
     }
 
@@ -197,9 +198,9 @@ class TimerService : Service() {
             .setSilent(true)
             // These actions drive the same controller the UI does, so the notification can no
             // longer disagree with the timer - previously "stop" only killed the service.
-            .addAction(0, getString(toggleLabel), serviceAction(ACTION_TOGGLE, 1))
-            .addAction(0, getString(R.string.action_skip), serviceAction(ACTION_SKIP, 2))
-            .addAction(0, getString(R.string.action_stop), serviceAction(ACTION_SHUTDOWN, 3))
+            .addAction(0, getString(toggleLabel), serviceAction(ACTION_TOGGLE, REQUEST_TOGGLE))
+            .addAction(0, getString(R.string.action_skip), serviceAction(ACTION_SKIP, REQUEST_SKIP))
+            .addAction(0, getString(R.string.action_stop), serviceAction(ACTION_SHUTDOWN, REQUEST_SHUTDOWN))
             .build()
     }
 
@@ -228,7 +229,7 @@ class TimerService : Service() {
             .setAutoCancel(true)
             .apply {
                 if (info.awaitingConfirmation) {
-                    addAction(0, getString(R.string.action_start), serviceAction(ACTION_START, 4))
+                    addAction(0, getString(R.string.action_start), serviceAction(ACTION_START, REQUEST_START))
                 }
             }
             .build()
@@ -237,7 +238,7 @@ class TimerService : Service() {
         try {
             manager.notify(TimerNotifications.ID_PHASE_END, notification)
         } catch (e: SecurityException) {
-            Log.w(TAG, "Notification permission not granted", e)
+            Logger.w(TAG, "Notification permission not granted", e)
         }
     }
 
@@ -299,6 +300,12 @@ class TimerService : Service() {
     companion object {
         private const val TAG = "TimerService"
 
+        // Distinct PendingIntent request codes so the notification actions do not collide.
+        private const val REQUEST_TOGGLE = 1
+        private const val REQUEST_SKIP = 2
+        private const val REQUEST_SHUTDOWN = 3
+        private const val REQUEST_START = 4
+
         const val ACTION_START = "com.looptimer.action.START"
         const val ACTION_PAUSE = "com.looptimer.action.PAUSE"
         const val ACTION_TOGGLE = "com.looptimer.action.TOGGLE"
@@ -308,7 +315,10 @@ class TimerService : Service() {
         const val ACTION_SHUTDOWN = "com.looptimer.action.SHUTDOWN"
 
         fun formatTime(totalSeconds: Int): String =
-            "%02d:%02d".format(totalSeconds / 60, totalSeconds % 60)
+            "%02d:%02d".format(
+                totalSeconds / TimeRanges.SECONDS_PER_MINUTE,
+                totalSeconds % TimeRanges.SECONDS_PER_MINUTE
+            )
 
         /** Starts the service in the foreground, tolerating the background-start restriction. */
         fun send(context: Context, action: String) {
@@ -320,7 +330,7 @@ class TimerService : Service() {
                     context.startService(intent)
                 }
             } catch (e: Exception) {
-                Log.w(TAG, "Could not deliver $action", e)
+                Logger.w(TAG, "Could not deliver $action", e)
             }
         }
     }

@@ -39,6 +39,7 @@ import com.looptimer.BuildConfig
 import com.looptimer.R
 import com.looptimer.domain.Phase
 import com.looptimer.domain.RunState
+import com.looptimer.domain.TimeRanges
 import com.looptimer.domain.TimerConfig
 import com.looptimer.domain.TimerState
 import com.looptimer.ui.components.AlarmSettingsPanel
@@ -58,7 +59,6 @@ fun HomeScreen(
     config: TimerConfig,
     timer: TimerState,
     alarmRinging: Boolean,
-    isDarkTheme: Boolean,
     onToggleTheme: () -> Unit,
     onConfigChange: (TimerConfig) -> Unit,
     onToggleRun: () -> Unit,
@@ -120,7 +120,7 @@ fun HomeScreen(
         ) {
             Column(horizontalAlignment = Alignment.CenterHorizontally) {
                 Text(
-                    text = "%02d:%02d".format(timer.remainingSeconds / 60, timer.remainingSeconds % 60),
+                    text = formatRemaining(timer.remainingSeconds),
                     fontSize = 64.sp,
                     fontWeight = FontWeight.Bold,
                     color = MaterialTheme.colorScheme.onBackground
@@ -263,3 +263,9 @@ fun HomeScreen(
         }
     }
 }
+
+/** Formats remaining seconds as mm:ss. */
+private fun formatRemaining(totalSeconds: Int): String = "%02d:%02d".format(
+    totalSeconds / TimeRanges.SECONDS_PER_MINUTE,
+    totalSeconds % TimeRanges.SECONDS_PER_MINUTE
+)

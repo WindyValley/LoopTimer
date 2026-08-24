@@ -27,10 +27,10 @@ data class TimerConfig(
     }
 
     /** Total configured work duration in seconds. */
-    val workTotalSeconds: Int get() = workMinutes * 60 + workSeconds
+    val workTotalSeconds: Int get() = workMinutes * TimeRanges.SECONDS_PER_MINUTE + workSeconds
 
     /** Total configured break duration in seconds. Zero means "skip breaks entirely". */
-    val breakTotalSeconds: Int get() = breakMinutes * 60 + breakSeconds
+    val breakTotalSeconds: Int get() = breakMinutes * TimeRanges.SECONDS_PER_MINUTE + breakSeconds
 
     val hasWork: Boolean get() = workTotalSeconds > 0
     val hasBreak: Boolean get() = breakTotalSeconds > 0
@@ -45,6 +45,7 @@ data class TimerConfig(
          * Builds a config from possibly-invalid input by clamping rather than throwing.
          * Use this at the persistence and UI boundaries; use the constructor internally.
          */
+        @Suppress("LongParameterList") // Mirrors the eight configuration fields by design.
         fun coerced(
             workMinutes: Int,
             workSeconds: Int,

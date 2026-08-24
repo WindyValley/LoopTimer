@@ -1,0 +1,52 @@
+# Detekt overrides on top of the default config (buildUponDefaultConfig = true).
+# Only deviations from the defaults are listed; everything else keeps upstream behaviour.
+
+build:
+  # Fail the build on any finding so quality cannot silently drift in CI.
+  maxIssues: 0
+
+complexity:
+  LongMethod:
+    # Compose UI functions are declarative and legitimately long.
+    excludes: ['**/ui/**']
+  LongParameterList:
+    # Stateless composables take one parameter per piece of state plus one per callback;
+    # config factories and builders mirror the eight-field TimerConfig by design.
+    excludes: ['**/ui/**', '**/test/**']
+    ignoreDefaultParameters: true
+  TooManyFunctions:
+    # Test classes are intentionally one function per behaviour.
+    excludes: ['**/ui/**', '**/test/**']
+    thresholdInClasses: 20
+  CyclomaticComplexMethod:
+    excludes: ['**/ui/**']
+
+style:
+  MagicNumber:
+    # Dimensions, colours and durations read better inline in UI and test code.
+    excludes: ['**/ui/**', '**/test/**']
+  MaxLineLength:
+    maxLineLength: 110
+  ReturnCount:
+    max: 4
+  UnusedPrivateMember:
+    active: true
+
+naming:
+  FunctionNaming:
+    # @Composable functions are PascalCase; test names use backticked sentences.
+    excludes: ['**/ui/**', '**/test/**']
+  TopLevelPropertyNaming:
+    excludes: ['**/ui/**']
+
+exceptions:
+  TooGenericExceptionCaught:
+    # Android framework calls throw broadly; we deliberately catch, log and degrade
+    # rather than letting a recoverable failure crash the app.
+    excludes: ['**/service/**', '**/data/**']
+  SwallowedException:
+    excludes: ['**/service/**', '**/data/**']
+
+potential-bugs:
+  IgnoredReturnValue:
+    active: true

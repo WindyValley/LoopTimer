@@ -66,7 +66,6 @@ class MainActivity : ComponentActivity() {
                     config = config,
                     timer = timer,
                     alarmRinging = ringing,
-                    isDarkTheme = darkTheme,
                     onToggleTheme = {
                         darkTheme = !darkTheme
                         presets.setDarkTheme(darkTheme)

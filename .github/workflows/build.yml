@@ -33,6 +33,9 @@ jobs:
       - name: Unit tests
         run: ./gradlew testDebugUnitTest
 
+      - name: Static analysis
+        run: ./gradlew detekt
+
       - name: Lint
         run: ./gradlew lintDebug
 
@@ -53,6 +56,7 @@ jobs:
           path: |
             app/build/reports/tests/**
             app/build/reports/lint-results-*.html
+            build/reports/detekt/**
           if-no-files-found: ignore
 
   release:
