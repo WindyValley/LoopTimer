@@ -57,4 +57,34 @@
     <string name="home_progress">第 %1$d / %2$d 轮 · %3$s</string>
     <string name="home_presets">预设管理</string>
     <string name="home_version">版本 %1$s</string>
+
+    <!-- Presets -->
+    <string name="presets_title">预设管理</string>
+    <string name="presets_empty_title">暂无预设</string>
+    <string name="presets_empty_hint">点击右下角 + 创建一个预设</string>
+    <string name="preset_new_title">新建预设</string>
+    <string name="preset_edit_title">编辑预设</string>
+    <string name="preset_name_label">预设名称</string>
+    <string name="preset_name_hint">例如：番茄工作法</string>
+    <string name="preset_name_required">请输入预设名称</string>
+    <string name="preset_selected">已选中</string>
+    <string name="preset_summary_time">工作 %1$d 分 %2$d 秒 · 休息 %3$d 分 %4$d 秒</string>
+    <string name="preset_summary_loops">循环 %1$d 次 · %2$s · 闹钟 %3$s</string>
+    <string name="preset_delete_title">删除预设</string>
+    <string name="preset_delete_message">确定要删除「%1$s」吗？此操作无法撤销。</string>
+    <string name="mode_auto">自动开始</string>
+    <string name="mode_manual">手动开始</string>
+    <string name="alarm_off">关闭</string>
+    <string name="alarm_fixed">%1$d 秒</string>
+
+    <!-- Generic actions -->
+    <string name="action_save">保存</string>
+    <string name="action_cancel">取消</string>
+    <string name="action_delete">删除</string>
+
+    <!-- Content descriptions -->
+    <string name="cd_back">返回</string>
+    <string name="cd_create_preset">新建预设</string>
+    <string name="cd_edit_preset">编辑预设</string>
+    <string name="cd_delete_preset">删除预设</string>
 </resources>

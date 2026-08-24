@@ -1,6 +1,7 @@
 package com.looptimer
 
 import android.Manifest
+import android.content.Intent
 import android.content.pm.PackageManager
 import android.os.Build
 import android.os.Bundle
@@ -41,7 +42,7 @@ class MainActivity : ComponentActivity() {
         super.onCreate(savedInstanceState)
 
         connection = TimerConnection(this)
-        val presets = PresetsRepository(applicationContext)
+        val presets = PresetsRepository.getInstance(this)
 
         requestNotificationPermissionIfNeeded()
 
@@ -49,9 +50,9 @@ class MainActivity : ComponentActivity() {
             val controller by connection.controller.collectAsState()
             var darkTheme by remember { mutableStateOf(presets.isDarkTheme()) }
 
-            // Config is persisted locally and pushed into the service once connected, so the
-            // screen still renders (and stays editable) before the binding completes.
-            var config by remember { mutableStateOf(presets.currentConfig()) }
+            // The repository is the source of truth for configuration, so selecting a preset in
+            // the other activity is picked up here without polling a timestamp on resume.
+            val config by presets.activeConfig.collectAsState()
             LaunchedEffect(controller, config) {
                 controller?.updateConfig(config)
             }
@@ -70,14 +71,14 @@ class MainActivity : ComponentActivity() {
                         darkTheme = !darkTheme
                         presets.setDarkTheme(darkTheme)
                     },
-                    onConfigChange = { updated ->
-                        config = updated
-                        presets.saveCurrentConfig(updated)
-                    },
+                    onConfigChange = presets::saveCurrentConfig,
                     onToggleRun = { TimerService.send(this, TimerService.ACTION_TOGGLE) },
                     onReset = { TimerService.send(this, TimerService.ACTION_RESET) },
                     onSkip = { TimerService.send(this, TimerService.ACTION_SKIP) },
-                    onStopAlarm = { TimerService.send(this, TimerService.ACTION_STOP_ALARM) }
+                    onStopAlarm = { TimerService.send(this, TimerService.ACTION_STOP_ALARM) },
+                    onOpenPresets = {
+                        startActivity(Intent(this, PresetListActivity::class.java))
+                    }
                 )
             }
         }

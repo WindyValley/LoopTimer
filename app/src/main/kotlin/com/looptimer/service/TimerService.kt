@@ -12,9 +12,9 @@ import android.util.Log
 import androidx.core.app.NotificationCompat
 import com.looptimer.MainActivity
 import com.looptimer.R
+import com.looptimer.data.PresetsRepository
 import com.looptimer.domain.Phase
 import com.looptimer.domain.RunState
-import com.looptimer.domain.TimerConfig
 import com.looptimer.domain.TimerState
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Job
@@ -52,7 +52,9 @@ class TimerService : Service() {
         controller = TimerController(
             scope = serviceScope,
             clock = ElapsedClock.SYSTEM,
-            initialConfig = TimerConfig()
+            // Start from what the user last configured, so the notification and the UI agree
+            // even before the activity binds.
+            initialConfig = PresetsRepository.getInstance(applicationContext).currentConfig()
         )
         binder.attach(controller)
 
