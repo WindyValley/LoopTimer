@@ -8,13 +8,14 @@ import android.app.Service
 import android.content.Context
 import android.content.Intent
 import android.os.IBinder
+import android.os.SystemClock
 import androidx.core.app.NotificationCompat
 import com.looptimer.MainActivity
 import com.looptimer.R
 import com.looptimer.data.PresetsRepository
 import com.looptimer.domain.Phase
-import com.looptimer.domain.TimeRanges
 import com.looptimer.domain.RunState
+import com.looptimer.domain.TimeRanges
 import com.looptimer.domain.TimerState
 import com.looptimer.util.Logger
 import kotlinx.coroutines.CoroutineScope
@@ -30,12 +31,14 @@ import kotlinx.coroutines.launch
 /**
  * Owns the running timer.
  *
- * The timer used to live in a composable's `remember`, which meant the countdown died with the
- * UI while this service's notification still claimed it was running. Now the service holds the
- * [TimerController] and the UI merely observes [state], so a configuration change or a destroyed
- * activity no longer affects timing.
+ * The timer used to live in a composable's `remember`, which meant the countdown died with the UI
+ * while a foreground-service notification still claimed it was running. The service now holds the
+ * [TimerController] and the UI merely observes [TimerBinder.controller].
  *
- * The service is only in the foreground while there is genuinely something to count.
+ * Phase boundaries are scheduled with `AlarmManager` and the visible countdown is drawn by the
+ * notification's own chronometer, so the service does **no** per-second work and does not need to
+ * stay in the foreground merely to count. It only enters the foreground while the alarm is actually
+ * audible, which is a genuine user-visible activity.
  */
 class TimerService : Service() {
 
@@ -53,6 +56,7 @@ class TimerService : Service() {
         controller = TimerController(
             scope = serviceScope,
             clock = ElapsedClock.SYSTEM,
+            scheduler = AlarmManagerDeadlineScheduler(applicationContext),
             // Start from what the user last configured, so the notification and the UI agree
             // even before the activity binds.
             initialConfig = PresetsRepository.getInstance(applicationContext).currentConfig()
@@ -61,49 +65,46 @@ class TimerService : Service() {
 
         observerJob = serviceScope.launch {
             launch {
-                // Keep the ongoing notification in step with the countdown.
-                combine(controller.state, controller.config) { state, _ -> state }
-                    .collect { onStateChanged(it) }
+                combine(controller.state, controller.deadlineElapsedMs) { state, deadline ->
+                    state to deadline
+                }.collect { (state, deadline) -> onStateChanged(state, deadline) }
             }
-            launch {
-                controller.events.collect(::onEvent)
-            }
+            launch { controller.events.collect(::onEvent) }
         }
     }
 
     override fun onBind(intent: Intent?): IBinder = binder
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
-        // A null intent means the system restarted us after the process was killed. The old code
-        // fell through a `when (intent?.action)` without ever calling startForeground(), which
-        // trips ForegroundServiceDidNotStartInTimeException. Handle it explicitly.
+        // A null intent means the system recreated us after the process was killed. The original
+        // code fell through `when (intent?.action)` without ever calling startForeground(), which
+        // trips ForegroundServiceDidNotStartInTimeException.
         if (intent == null) {
-            Logger.w(TAG, "Restarted by system with null intent; restoring foreground state")
-            ensureForeground(controller.state.value)
+            Logger.w(TAG, "Recreated by system with null intent; re-publishing state")
+            controller.refresh()
             return START_NOT_STICKY
         }
 
         when (intent.action) {
-            ACTION_START -> {
-                ensureForeground(controller.state.value)
-                controller.start()
-            }
+            ACTION_START -> controller.start()
             ACTION_PAUSE -> controller.pause()
             ACTION_TOGGLE -> controller.toggle()
             ACTION_SKIP -> controller.skip()
             ACTION_RESET -> controller.reset()
             ACTION_STOP_ALARM -> controller.stopAlarm()
+            ACTION_REFRESH -> controller.refresh()
+            // Delivered by AlarmManager at a phase boundary.
+            ACTION_DEADLINE_REACHED -> controller.onDeadlineReached()
             ACTION_SHUTDOWN -> {
                 controller.pause()
                 controller.stopAlarm()
-                leaveForeground(removeNotification = true)
                 stopSelf()
             }
             else -> Logger.w(TAG, "Unknown action: ${intent.action}")
         }
 
-        // Deliberately NOT sticky: the timer's authoritative state is not restorable from an
-        // empty redelivery, and a sticky restart previously caused the FGS crash above.
+        // Not sticky: an empty redelivery carries no timer state, and the AlarmManager deadline
+        // survives process death independently, so the boundary still fires.
         return START_NOT_STICKY
     }
 
@@ -118,58 +119,40 @@ class TimerService : Service() {
 
     // ------------------------------------------------------------------ reactions
 
-    private fun onStateChanged(state: TimerState) {
+    private fun onStateChanged(state: TimerState, deadlineElapsedMs: Long?) {
         when (state.runState) {
-            RunState.RUNNING, RunState.AWAITING_CONFIRMATION -> ensureForeground(state)
-            RunState.PAUSED -> if (isForeground) notify(buildOngoing(state))
-            // Nothing to count: stop holding a foreground slot.
-            RunState.IDLE, RunState.COMPLETED -> leaveForeground(removeNotification = true)
+            RunState.RUNNING, RunState.PAUSED, RunState.AWAITING_CONFIRMATION ->
+                notifyOngoing(state, deadlineElapsedMs)
+            // Nothing to count: withdraw the notification entirely.
+            RunState.IDLE, RunState.COMPLETED -> cancelOngoing()
         }
     }
 
     private fun onEvent(event: TimerEvent) {
         when (event) {
-            is TimerEvent.StartAlarm -> alarm.start(event.setting)
-            is TimerEvent.StopAlarm -> alarm.stop()
+            is TimerEvent.StartAlarm -> {
+                // The alarm is audible, user-visible work, so it justifies a foreground slot.
+                enterForegroundForAlarm()
+                alarm.start(event.setting)
+            }
+            is TimerEvent.StopAlarm -> {
+                alarm.stop()
+                leaveForeground()
+            }
             is TimerEvent.PhaseEnded -> postPhaseEnd(event)
         }
     }
 
-    // ------------------------------------------------------------------ foreground plumbing
+    // ------------------------------------------------------------------ notifications
 
-    private fun ensureForeground(state: TimerState) {
-        val notification = buildOngoing(state)
-        if (isForeground) {
-            notify(notification)
-            return
-        }
-        try {
-            startForeground(TimerNotifications.ID_ONGOING, notification)
-            isForeground = true
-        } catch (e: Exception) {
-            // Android 12+ throws ForegroundServiceStartNotAllowedException when we are started
-            // from the background. Degrade to a plain notification rather than crashing.
-            Logger.w(TAG, "Could not enter foreground; falling back to a plain notification", e)
-            notify(notification)
-        }
-    }
-
-    private fun leaveForeground(removeNotification: Boolean) {
-        if (!isForeground) return
-        stopForeground(if (removeNotification) STOP_FOREGROUND_REMOVE else STOP_FOREGROUND_DETACH)
-        isForeground = false
-    }
-
-    private fun notify(notification: Notification) {
-        val manager = getSystemService(NotificationManager::class.java) ?: return
-        try {
-            manager.notify(TimerNotifications.ID_ONGOING, notification)
-        } catch (e: SecurityException) {
-            Logger.w(TAG, "Notification permission not granted", e)
-        }
-    }
-
-    private fun buildOngoing(state: TimerState): Notification {
+    /**
+     * Builds the ongoing notification.
+     *
+     * When running, the remaining time is handed to the platform chronometer via [setWhen] +
+     * [setChronometerCountDown]: the system counts down on its own, so we post this once per phase
+     * instead of once per second.
+     */
+    private fun buildOngoing(state: TimerState, deadlineElapsedMs: Long?): Notification {
         val phaseLabel = getString(
             if (state.phase == Phase.WORK) R.string.phase_work else R.string.phase_break
         )
@@ -178,30 +161,58 @@ class TimerService : Service() {
             RunState.PAUSED -> getString(R.string.notif_paused_title, phaseLabel)
             else -> getString(R.string.notif_running_title, phaseLabel)
         }
-        val body = getString(
-            R.string.notif_running_body,
-            TimerService.formatTime(state.remainingSeconds),
-            state.currentLoop,
-            state.totalLoops
-        )
-
+        val loops = getString(R.string.notif_loops, state.currentLoop, state.totalLoops)
         val toggleLabel = if (state.isRunning) R.string.action_pause else R.string.action_start
 
         return NotificationCompat.Builder(this, TimerNotifications.CHANNEL_ONGOING)
             .setSmallIcon(R.drawable.ic_timer)
             .setContentTitle(title)
-            .setContentText(body)
             .setContentIntent(contentIntent())
             .setPriority(NotificationCompat.PRIORITY_LOW)
             .setOngoing(state.isRunning)
             .setOnlyAlertOnce(true)
             .setSilent(true)
+            .apply {
+                if (state.isRunning && deadlineElapsedMs != null) {
+                    // Convert the monotonic deadline to the wall-clock base the chronometer uses.
+                    val deltaMs = deadlineElapsedMs - SystemClock.elapsedRealtime()
+                    setWhen(System.currentTimeMillis() + deltaMs)
+                    setUsesChronometer(true)
+                    setChronometerCountDown(true)
+                    setShowWhen(true)
+                    setContentText(loops)
+                } else {
+                    // Paused or awaiting confirmation: no live countdown, so show the figure.
+                    setShowWhen(false)
+                    setContentText(
+                        getString(
+                            R.string.notif_running_body,
+                            formatTime(state.remainingSeconds),
+                            state.currentLoop,
+                            state.totalLoops
+                        )
+                    )
+                }
+            }
             // These actions drive the same controller the UI does, so the notification can no
             // longer disagree with the timer - previously "stop" only killed the service.
             .addAction(0, getString(toggleLabel), serviceAction(ACTION_TOGGLE, REQUEST_TOGGLE))
             .addAction(0, getString(R.string.action_skip), serviceAction(ACTION_SKIP, REQUEST_SKIP))
-            .addAction(0, getString(R.string.action_stop), serviceAction(ACTION_SHUTDOWN, REQUEST_SHUTDOWN))
+            .addAction(
+                0,
+                getString(R.string.action_stop),
+                serviceAction(ACTION_SHUTDOWN, REQUEST_SHUTDOWN)
+            )
             .build()
+    }
+
+    private fun notifyOngoing(state: TimerState, deadlineElapsedMs: Long?) {
+        notify(TimerNotifications.ID_ONGOING, buildOngoing(state, deadlineElapsedMs))
+    }
+
+    private fun cancelOngoing() {
+        leaveForeground()
+        notificationManager()?.cancel(TimerNotifications.ID_ONGOING)
     }
 
     private fun postPhaseEnd(event: TimerEvent.PhaseEnded) {
@@ -209,9 +220,10 @@ class TimerService : Service() {
         val endedLabel = getString(
             if (info.endedPhase == Phase.WORK) R.string.phase_work else R.string.phase_break
         )
-        val title = when {
-            info.allLoopsComplete -> getString(R.string.notif_all_done_title)
-            else -> getString(R.string.notif_phase_end_title, endedLabel)
+        val title = if (info.allLoopsComplete) {
+            getString(R.string.notif_all_done_title)
+        } else {
+            getString(R.string.notif_phase_end_title, endedLabel)
         }
         val body = when {
             info.allLoopsComplete -> getString(R.string.notif_all_done_body)
@@ -229,22 +241,59 @@ class TimerService : Service() {
             .setAutoCancel(true)
             .apply {
                 if (info.awaitingConfirmation) {
-                    addAction(0, getString(R.string.action_start), serviceAction(ACTION_START, REQUEST_START))
+                    addAction(
+                        0,
+                        getString(R.string.action_start),
+                        serviceAction(ACTION_START, REQUEST_START)
+                    )
                 }
             }
             .build()
 
-        val manager = getSystemService(NotificationManager::class.java) ?: return
+        notify(TimerNotifications.ID_PHASE_END, notification)
+    }
+
+    private fun notify(id: Int, notification: Notification) {
         try {
-            manager.notify(TimerNotifications.ID_PHASE_END, notification)
+            notificationManager()?.notify(id, notification)
         } catch (e: SecurityException) {
             Logger.w(TAG, "Notification permission not granted", e)
         }
     }
 
+    private fun notificationManager(): NotificationManager? =
+        getSystemService(NotificationManager::class.java)
+
+    // ------------------------------------------------------------------ foreground (alarm only)
+
+    private fun enterForegroundForAlarm() {
+        if (isForeground) return
+        val state = controller.state.value
+        try {
+            startForeground(
+                TimerNotifications.ID_ONGOING,
+                buildOngoing(state, controller.deadlineElapsedMs.value)
+            )
+            isForeground = true
+        } catch (e: Exception) {
+            // Android 12+ throws ForegroundServiceStartNotAllowedException when started from the
+            // background. Degrade to a plain notification rather than crashing.
+            Logger.w(TAG, "Could not enter foreground; alarm continues without it", e)
+            notifyOngoing(state, controller.deadlineElapsedMs.value)
+        }
+    }
+
+    private fun leaveForeground() {
+        if (!isForeground) return
+        stopForeground(STOP_FOREGROUND_DETACH)
+        isForeground = false
+    }
+
+    // ------------------------------------------------------------------ plumbing
+
     private fun contentIntent(): PendingIntent = PendingIntent.getActivity(
         this,
-        0,
+        REQUEST_CONTENT,
         Intent(this, MainActivity::class.java).apply {
             flags = Intent.FLAG_ACTIVITY_SINGLE_TOP or Intent.FLAG_ACTIVITY_CLEAR_TOP
         },
@@ -260,7 +309,7 @@ class TimerService : Service() {
         )
 
     private fun createChannels() {
-        val manager = getSystemService(NotificationManager::class.java) ?: return
+        val manager = notificationManager() ?: return
         manager.createNotificationChannel(
             NotificationChannel(
                 TimerNotifications.CHANNEL_ONGOING,
@@ -288,7 +337,7 @@ class TimerService : Service() {
 
     private val binder = TimerBinder()
 
-    /** Exposes the service-owned controller to the UI process. */
+    /** Exposes the service-owned controller to the UI. */
     class TimerBinder : android.os.Binder() {
         private val _controller = MutableStateFlow<TimerController?>(null)
         val controller: StateFlow<TimerController?> = _controller.asStateFlow()
@@ -305,6 +354,7 @@ class TimerService : Service() {
         private const val REQUEST_SKIP = 2
         private const val REQUEST_SHUTDOWN = 3
         private const val REQUEST_START = 4
+        private const val REQUEST_CONTENT = 5
 
         const val ACTION_START = "com.looptimer.action.START"
         const val ACTION_PAUSE = "com.looptimer.action.PAUSE"
@@ -313,6 +363,8 @@ class TimerService : Service() {
         const val ACTION_RESET = "com.looptimer.action.RESET"
         const val ACTION_STOP_ALARM = "com.looptimer.action.STOP_ALARM"
         const val ACTION_SHUTDOWN = "com.looptimer.action.SHUTDOWN"
+        const val ACTION_REFRESH = "com.looptimer.action.REFRESH"
+        const val ACTION_DEADLINE_REACHED = "com.looptimer.action.DEADLINE_REACHED"
 
         fun formatTime(totalSeconds: Int): String =
             "%02d:%02d".format(
@@ -320,15 +372,12 @@ class TimerService : Service() {
                 totalSeconds % TimeRanges.SECONDS_PER_MINUTE
             )
 
-        /** Starts the service in the foreground, tolerating the background-start restriction. */
+        /** Delivers [action] to the service. */
         fun send(context: Context, action: String) {
-            val intent = Intent(context, TimerService::class.java).setAction(action)
             try {
-                if (action == ACTION_START) {
-                    context.startForegroundService(intent)
-                } else {
-                    context.startService(intent)
-                }
+                context.startService(
+                    Intent(context, TimerService::class.java).setAction(action)
+                )
             } catch (e: Exception) {
                 Logger.w(TAG, "Could not deliver $action", e)
             }

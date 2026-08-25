@@ -73,10 +73,24 @@ the countdown died with the activity while the foreground notification still cla
 running. The service now holds the controller and publishes `StateFlow`; the UI only observes. The
 notification's actions drive the same controller, so it can no longer disagree with the timer.
 
-**The countdown is deadline-based.** `TimerController` stores the monotonic instant a phase ends
-(`ElapsedClock`, backed by `SystemClock.elapsedRealtime()`) and derives the remaining time from the
-clock. The old implementation decremented a counter once per `delay(1000)`, so scheduling jitter
-accumulated into permanent drift and the timer stalled while the process was frozen.
+**The countdown is deadline-based, and nothing ticks.** `TimerController` stores the monotonic
+instant a phase ends (`ElapsedClock`, backed by `SystemClock.elapsedRealtime()`) and derives the
+remaining time from the clock on demand. Phase boundaries are scheduled with
+`AlarmManager.setAlarmClock` via the `DeadlineScheduler` abstraction, and the visible countdown in
+the notification is drawn by the platform chronometer (`setUsesChronometer` +
+`setChronometerCountDown`). Between boundaries the app runs no code at all.
+
+The original implementation decremented a counter once per `delay(1000)`, so scheduling jitter
+accumulated into permanent drift and the timer stalled entirely while the process was frozen.
+
+`setAlarmClock` is used rather than `setExactAndAllowWhileIdle` because it is exempt from Doze
+deferral and exact-alarm rate limits. Note that **this does not create an entry in the user's clock
+app** — that would require sending `AlarmClock.ACTION_SET_ALARM`, which this app never does.
+
+**The service is only in the foreground while the alarm is audible.** Since counting no longer
+requires a live process, the service claims a foreground slot only for the duration of the alarm
+sound, declared as `mediaPlayback`. This replaced `specialUse`, which requires a manual policy
+review on Google Play.
 
 **`AlarmSetting` is a sealed type** (`Off` / `Fixed(seconds)` / `Forever`). It replaced an `Int`
 where `-1` meant "ring forever" — an encoding the preset editor could not even express, since it
@@ -90,6 +104,8 @@ configuration the home screen accepted.
 
 - Timer state belongs to the service layer. Do not reintroduce it into a composable's `remember`.
 - Changes to phase progression go in `TimerEngine`, with a test.
+- Do not reintroduce a per-second ticker in the service; the notification chronometer and
+  `AlarmManager` cover display and wake-up respectively.
 - Do not reintroduce the `alarmDuration = -1` sentinel.
 - Colours come from `MaterialTheme.colorScheme`, not per-file `Color(0xFF…)` literals.
 - Persisted data is decoded with `opt*` plus defaults and clamped; a single malformed record must
@@ -101,8 +117,9 @@ configuration the home screen accepted.
 emulator is needed.
 
 `TimerControllerTest` backs `ElapsedClock` with the coroutine test scheduler's virtual clock, so
-`advanceTimeBy` moves the timer's notion of "now" in lockstep. Use `runCurrent()` rather than
-`advanceUntilIdle()` while the controller is counting down: the ticker reschedules itself
-continuously, so `advanceUntilIdle()` would run it to exhaustion and consume all virtual time.
+`advanceTimeBy` moves the timer's notion of "now" in lockstep, and uses a fake `DeadlineScheduler`
+so the test fires phase boundaries explicitly — exactly as `AlarmManager` would. Use `runCurrent()`
+rather than `advanceUntilIdle()` when a coroutine is outstanding, so virtual time is not consumed
+unintentionally.
 
 Trust `app/build/test-results/**/*.xml` over console output when checking results.

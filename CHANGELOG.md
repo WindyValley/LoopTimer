@@ -50,6 +50,13 @@ listed below; the work targets correctness and maintainability.
 - Layered into `domain` (pure Kotlin) / `service` (runtime state) / `data` (persistence) / `ui`.
   `MainActivity` went from 1122 lines to ~90.
 - Phase progression consolidated into a single `TimerEngine`, replacing three divergent copies.
+- **Phase boundaries are now scheduled with `AlarmManager.setAlarmClock`** and the visible countdown
+  is drawn by the notification's platform chronometer, so the app runs no code between boundaries.
+  The timer therefore keeps time while the process is idle or the device is dozing, and survives the
+  process being killed. It does not create entries in the user's clock app.
+- **The foreground service is now only used while the alarm is audible**, declared as
+  `mediaPlayback` instead of `specialUse` (which requires a manual Play policy review). Counting no
+  longer requires a live process, so no foreground slot is held merely to keep time.
 - Alarm configuration modelled as a sealed `AlarmSetting`, replacing the `alarmDuration = -1`
   sentinel. Legacy values are migrated on read.
 - Persistence exposed as `StateFlow`, replacing a `settings_timestamp` polled on every `ON_RESUME`
@@ -66,13 +73,14 @@ listed below; the work targets correctness and maintainability.
 
 - `AlarmReceiver`, which was unreachable (nothing broadcast to it) and whose `else` branch would
   have started the alarm for any unrecognised intent.
-- Unused permissions: `SCHEDULE_EXACT_ALARM`, `USE_EXACT_ALARM`, `RECEIVE_BOOT_COMPLETED`.
+- Unused permissions: `SCHEDULE_EXACT_ALARM` and `RECEIVE_BOOT_COMPLETED`. (`USE_EXACT_ALARM` is
+  now genuinely used and is granted on install for timer apps, with no runtime prompt.)
 - A top-level mutable global and the 100 ms polling loop used for event delivery.
 - `VERSION.kt`, which had to be manually kept in sync with `gradle.properties`.
 
 ### Added
 
-- 60 unit tests covering the state machine, timing behaviour, and the persistence codec including
+- 65 unit tests covering the state machine, timing behaviour, and the persistence codec including
   legacy migration. The project previously had none.
 - `detekt` static analysis, configured to fail on any finding, wired into CI.
 - CI now runs unit tests, static analysis and lint, and runs them on pull requests — the previous

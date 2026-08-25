@@ -3,8 +3,23 @@
 
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS"/>
     <uses-permission android:name="android.permission.VIBRATE"/>
+
+    <!--
+      Phase boundaries are scheduled with AlarmManager.setAlarmClock so the timer stays accurate
+      while the process is idle or the device is dozing. USE_EXACT_ALARM is granted on install for
+      apps whose core function is a clock/timer, so no runtime prompt is needed.
+      NOTE: this app never sends AlarmClock.ACTION_SET_ALARM, so it does not create entries in the
+      user's clock app.
+    -->
+    <uses-permission android:name="android.permission.USE_EXACT_ALARM"/>
+
+    <!--
+      The service only runs in the foreground while the alarm is actually audible; between phases
+      nothing runs at all. mediaPlayback matches that use (an alarm sound via MediaPlayer) and
+      avoids the specialUse type, which requires a manual policy review.
+    -->
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE"/>
-    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_SPECIAL_USE"/>
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_MEDIA_PLAYBACK"/>
 
     <application
         android:allowBackup="true"
@@ -38,11 +53,7 @@
             android:name=".service.TimerService"
             android:enabled="true"
             android:exported="false"
-            android:foregroundServiceType="specialUse">
-            <property
-                android:name="android.app.PROPERTY_SPECIAL_USE_FGS_SUBTYPE"
-                android:value="Interval timer that must keep counting and alert the user while the app is in the background"/>
-        </service>
+            android:foregroundServiceType="mediaPlayback"/>
     </application>
 
 </manifest>

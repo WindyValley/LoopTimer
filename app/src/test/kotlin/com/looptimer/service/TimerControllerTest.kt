@@ -5,6 +5,7 @@ import com.looptimer.domain.Phase
 import com.looptimer.domain.RunState
 import com.looptimer.domain.TimerConfig
 import kotlin.test.assertEquals
+import kotlin.test.assertNull
 import kotlin.test.assertTrue
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.Job
@@ -16,16 +17,36 @@ import kotlinx.coroutines.test.runTest
 import org.junit.Test
 
 /**
- * Verifies the timing layer: that the countdown is derived from a monotonic deadline rather
- * than accumulated per-second decrements, and that state ownership survives independently
- * of any UI.
+ * Verifies the timing layer: remaining time is derived from a monotonic deadline rather than
+ * accumulated per-second decrements, phase boundaries are delegated to a scheduler, and state
+ * ownership is independent of any UI.
  *
- * The [ElapsedClock] is backed by the coroutine test scheduler's virtual clock, so advancing
- * virtual time advances the timer's notion of "now" in lockstep - exactly like the real
- * pairing of `elapsedRealtime()` and `delay()`, but deterministic and instant.
+ * [ElapsedClock] is backed by the coroutine test scheduler's virtual clock, so advancing virtual
+ * time advances the timer's notion of "now" in lockstep. The [FakeScheduler] stands in for
+ * `AlarmManager`: the test fires deadlines explicitly, exactly as the OS would.
  */
 @OptIn(ExperimentalCoroutinesApi::class)
 class TimerControllerTest {
+
+    /** Records the requested deadline so the test can assert on it and fire it on demand. */
+    private class FakeScheduler : DeadlineScheduler {
+        var scheduledAt: Long? = null
+            private set
+        var scheduleCount = 0
+            private set
+        var cancelCount = 0
+            private set
+
+        override fun schedule(triggerAtElapsedMs: Long) {
+            scheduledAt = triggerAtElapsedMs
+            scheduleCount++
+        }
+
+        override fun cancel() {
+            scheduledAt = null
+            cancelCount++
+        }
+    }
 
     private fun config(
         workMinutes: Int = 0,
@@ -37,250 +58,360 @@ class TimerControllerTest {
         autoStart: Boolean = true
     ) = TimerConfig(workMinutes, workSeconds, breakMinutes, breakSeconds, loops, alarm, autoStart)
 
-    /**
-     * Runs [body] with a controller whose clock is the scheduler's virtual clock.
-     * Use `advanceTimeBy(...)` to move time; the controller observes the same instant.
-     */
+    private class Fixture(
+        val controller: TimerController,
+        val scheduler: FakeScheduler,
+        val events: MutableList<TimerEvent>
+    )
+
     private fun timerTest(
         config: TimerConfig,
-        body: suspend TestScope.(TimerController, MutableList<TimerEvent>) -> Unit
+        body: suspend TestScope.(Fixture) -> Unit
     ) = runTest {
-        val clock = ElapsedClock { testScheduler.currentTime }
-        val controller = TimerController(this, clock, config)
+        val scheduler = FakeScheduler()
+        val controller = TimerController(
+            scope = this,
+            clock = ElapsedClock { testScheduler.currentTime },
+            scheduler = scheduler,
+            initialConfig = config
+        )
         val events = mutableListOf<TimerEvent>()
         val collector: Job = launch { controller.events.collect { events += it } }
 
         try {
-            body(controller, events)
+            body(Fixture(controller, scheduler, events))
         } finally {
             controller.dispose()
             collector.cancel()
         }
     }
 
+    /** Simulates the OS delivering the scheduled wake-up. */
+    private fun TestScope.fireDeadline(f: Fixture) {
+        val at = requireNotNull(f.scheduler.scheduledAt) { "no deadline was scheduled" }
+        val delta = at - testScheduler.currentTime
+        if (delta > 0) advanceTimeBy(delta)
+        runCurrent()
+        f.controller.onDeadlineReached()
+        runCurrent()
+    }
+
+    // ---------------------------------------------------------------- deadline scheduling
+
     @Test
-    fun `countdown is derived from the deadline and does not drift`() =
-        timerTest(config(workMinutes = 1, loops = 2)) { controller, _ ->
-            controller.start()
+    fun `starting schedules a deadline at the end of the phase`() =
+        timerTest(config(workMinutes = 1)) { f ->
+            f.controller.start()
+
+            assertEquals(60_000L, f.scheduler.scheduledAt, "deadline should be 60s from t=0")
+            assertEquals(60_000L, f.controller.deadlineElapsedMs.value)
+        }
+
+    @Test
+    fun `no per-second work happens between boundaries`() =
+        timerTest(config(workMinutes = 5)) { f ->
+            f.controller.start()
+            val schedulesAfterStart = f.scheduler.scheduleCount
+
+            // Four minutes of virtual time with nothing driving the controller.
+            advanceTimeBy(240_000)
+            runCurrent()
+
+            assertEquals(
+                schedulesAfterStart,
+                f.scheduler.scheduleCount,
+                "the controller must not reschedule while simply waiting"
+            )
+        }
+
+    @Test
+    fun `remaining time is derived from the clock and does not drift`() =
+        timerTest(config(workMinutes = 1)) { f ->
+            f.controller.start()
 
             advanceTimeBy(10_000)
-            runCurrent()
+            f.controller.refresh()
 
             assertEquals(
                 50,
-                controller.state.value.remainingSeconds,
-                "remaining time must track the clock, not the number of tick iterations"
+                f.controller.state.value.remainingSeconds,
+                "remaining time must track the clock, not the number of iterations"
             )
         }
 
     @Test
-    fun `long run does not accumulate error`() =
-        timerTest(config(workMinutes = 5, loops = 2)) { controller, _ ->
-            controller.start()
+    fun `long run accumulates no error`() =
+        timerTest(config(workMinutes = 5)) { f ->
+            f.controller.start()
 
-            // Many irregular advances; a decrementing counter would lose time here.
             repeat(100) {
                 advanceTimeBy(1_500)
-                runCurrent()
+                f.controller.refresh()
             }
 
-            // 100 * 1.5s = 150s of a 300s phase.
-            assertEquals(150, controller.state.value.remainingSeconds)
+            assertEquals(150, f.controller.state.value.remainingSeconds)
+        }
+
+    // ---------------------------------------------------------------- progression
+
+    @Test
+    fun `firing the deadline advances to the break and reschedules`() =
+        timerTest(config(workSeconds = 30, breakSeconds = 20)) { f ->
+            f.controller.start()
+            fireDeadline(f)
+
+            assertEquals(Phase.BREAK, f.controller.state.value.phase)
+            assertTrue(f.controller.state.value.isRunning)
+            assertEquals(
+                50_000L,
+                f.scheduler.scheduledAt,
+                "break deadline should be 20s after the 30s work phase"
+            )
         }
 
     @Test
-    fun `phase rolls over when the deadline passes while the process was asleep`() =
-        timerTest(config(workSeconds = 30, breakSeconds = 20, loops = 2)) { controller, _ ->
-            controller.start()
-            assertEquals(Phase.WORK, controller.state.value.phase)
+    fun `a full session walks every phase and then stops scheduling`() =
+        timerTest(config(workSeconds = 5, breakSeconds = 5, loops = 3)) { f ->
+            f.controller.start()
 
-            // Jump straight past the end of the work phase.
-            advanceTimeBy(45_000)
-            runCurrent()
+            val s0 = f.controller.state.value
+            val visited = mutableListOf(s0.phase to s0.currentLoop)
+            repeat(6) {
+                if (f.controller.state.value.isRunning) {
+                    fireDeadline(f)
+                    if (f.controller.state.value.isRunning) {
+                        visited += f.controller.state.value.phase to f.controller.state.value.currentLoop
+                    }
+                }
+            }
 
-            assertEquals(Phase.BREAK, controller.state.value.phase)
-            assertTrue(controller.state.value.isRunning)
+            assertEquals(
+                listOf(
+                    Phase.WORK to 1, Phase.BREAK to 1,
+                    Phase.WORK to 2, Phase.BREAK to 2,
+                    Phase.WORK to 3
+                ),
+                visited
+            )
+            assertEquals(RunState.COMPLETED, f.controller.state.value.runState)
+            assertNull(f.controller.deadlineElapsedMs.value, "a finished session holds no deadline")
         }
 
     @Test
-    fun `pause freezes the derived remaining time`() =
-        timerTest(config(workMinutes = 1, loops = 2)) { controller, _ ->
-            controller.start()
-            advanceTimeBy(15_000)
-            runCurrent()
-            controller.pause()
+    fun `waking early re-arms instead of advancing`() =
+        timerTest(config(workSeconds = 30, breakSeconds = 10)) { f ->
+            f.controller.start()
 
-            val frozen = controller.state.value.remainingSeconds
-            assertEquals(45, frozen)
-
-            // Time keeps passing while paused; the timer must not consume it.
-            advanceTimeBy(60_000)
-            runCurrent()
-
-            assertEquals(frozen, controller.state.value.remainingSeconds)
-            assertEquals(RunState.PAUSED, controller.state.value.runState)
-        }
-
-    @Test
-    fun `resume after pause continues from the frozen value`() =
-        timerTest(config(workMinutes = 1, loops = 2)) { controller, _ ->
-            controller.start()
-            advanceTimeBy(20_000)
-            runCurrent()
-            controller.pause()
-
-            advanceTimeBy(120_000) // long idle gap
-            controller.start()
+            // A spurious wake-up 10s in: 20s still remain.
             advanceTimeBy(10_000)
             runCurrent()
+            f.controller.onDeadlineReached()
+            runCurrent()
 
-            assertEquals(30, controller.state.value.remainingSeconds)
+            assertEquals(Phase.WORK, f.controller.state.value.phase, "must not skip the phase")
+            assertEquals(20, f.controller.state.value.remainingSeconds)
+            assertEquals(30_000L, f.scheduler.scheduledAt, "deadline unchanged")
         }
 
     @Test
-    fun `emits alarm and notification effects at a phase boundary`() =
-        timerTest(
-            config(workSeconds = 5, breakSeconds = 5, loops = 2, alarm = AlarmSetting.Forever)
-        ) { controller, events ->
-            controller.start()
-            advanceTimeBy(5_000)
-            runCurrent()
+    fun `zero length break is never scheduled as a phase`() =
+        timerTest(config(workSeconds = 4, breakSeconds = 0, loops = 3)) { f ->
+            f.controller.start()
 
-            assertTrue(
-                events.any { it is TimerEvent.StartAlarm && it.setting == AlarmSetting.Forever },
-                "expected StartAlarm, saw $events"
+            repeat(6) {
+                if (f.controller.state.value.isRunning) {
+                    fireDeadline(f)
+                    val s = f.controller.state.value
+                    if (s.isRunning) {
+                        assertTrue(s.remainingSeconds > 0, "a running phase must have time left")
+                        assertEquals(Phase.WORK, s.phase, "0-second break must be skipped")
+                    }
+                }
+            }
+            assertEquals(RunState.COMPLETED, f.controller.state.value.runState)
+        }
+
+    // ---------------------------------------------------------------- pause / resume / reset
+
+    @Test
+    fun `pause freezes the remaining time and cancels the deadline`() =
+        timerTest(config(workMinutes = 1)) { f ->
+            f.controller.start()
+            advanceTimeBy(15_000)
+            f.controller.pause()
+
+            assertEquals(45, f.controller.state.value.remainingSeconds)
+            assertNull(f.controller.deadlineElapsedMs.value)
+            assertTrue(f.scheduler.cancelCount > 0, "the pending wake-up must be cancelled")
+
+            // Time passing while paused must not be consumed.
+            advanceTimeBy(60_000)
+            f.controller.refresh()
+            assertEquals(45, f.controller.state.value.remainingSeconds)
+            assertEquals(RunState.PAUSED, f.controller.state.value.runState)
+        }
+
+    @Test
+    fun `resuming continues from the frozen value with a fresh deadline`() =
+        timerTest(config(workMinutes = 1)) { f ->
+            f.controller.start()
+            advanceTimeBy(20_000)
+            f.controller.pause()
+
+            advanceTimeBy(120_000) // long idle gap
+            f.controller.start()
+
+            assertEquals(
+                testScheduler.currentTime + 40_000L,
+                f.scheduler.scheduledAt,
+                "the new deadline is 40s from the moment of resuming"
             )
-            assertTrue(events.any { it is TimerEvent.PhaseEnded }, "expected PhaseEnded, saw $events")
+
+            advanceTimeBy(10_000)
+            f.controller.refresh()
+            assertEquals(30, f.controller.state.value.remainingSeconds)
         }
 
     @Test
-    fun `autoStart off holds at the boundary until start is called`() =
-        timerTest(
-            config(workSeconds = 5, breakSeconds = 30, loops = 2, autoStart = false)
-        ) { controller, _ ->
-            controller.start()
-            advanceTimeBy(5_000)
+    fun `reset returns to the first work phase, cancels the deadline and silences the alarm`() =
+        timerTest(config(workSeconds = 30, breakSeconds = 10, loops = 3)) { f ->
+            f.controller.start()
+            advanceTimeBy(10_000)
+            f.controller.reset()
             runCurrent()
 
-            assertEquals(RunState.AWAITING_CONFIRMATION, controller.state.value.runState)
-            assertEquals(Phase.BREAK, controller.state.value.phase)
+            val s = f.controller.state.value
+            assertEquals(Phase.WORK, s.phase)
+            assertEquals(1, s.currentLoop)
+            assertEquals(30, s.remainingSeconds)
+            assertEquals(RunState.IDLE, s.runState)
+            assertNull(f.controller.deadlineElapsedMs.value)
+            assertTrue(f.events.any { it is TimerEvent.StopAlarm })
+        }
+
+    @Test
+    fun `skip advances immediately without waiting for the clock`() =
+        timerTest(config(workMinutes = 25, breakMinutes = 5, loops = 3)) { f ->
+            f.controller.start()
+            f.controller.skip()
+            runCurrent()
+
+            assertEquals(Phase.BREAK, f.controller.state.value.phase)
+            assertEquals(5 * 60, f.controller.state.value.remainingSeconds)
+        }
+
+    // ---------------------------------------------------------------- autoStart
+
+    @Test
+    fun `autoStart off holds at the boundary and schedules nothing`() =
+        timerTest(config(workSeconds = 5, breakSeconds = 30, autoStart = false)) { f ->
+            f.controller.start()
+            fireDeadline(f)
+
+            assertEquals(RunState.AWAITING_CONFIRMATION, f.controller.state.value.runState)
+            assertEquals(Phase.BREAK, f.controller.state.value.phase)
+            assertNull(
+                f.controller.deadlineElapsedMs.value,
+                "a queued phase must not be counting down"
+            )
 
             // Time passing must not consume the queued phase.
             advanceTimeBy(60_000)
-            runCurrent()
-            assertEquals(30, controller.state.value.remainingSeconds)
+            f.controller.refresh()
+            assertEquals(30, f.controller.state.value.remainingSeconds)
 
-            controller.start()
+            f.controller.start()
             advanceTimeBy(10_000)
-            runCurrent()
-            assertEquals(20, controller.state.value.remainingSeconds)
+            f.controller.refresh()
+            assertEquals(20, f.controller.state.value.remainingSeconds)
+        }
+
+    // ---------------------------------------------------------------- alarm
+
+    @Test
+    fun `crossing a boundary raises the alarm and reports the ended phase`() =
+        timerTest(
+            config(workSeconds = 5, breakSeconds = 5, alarm = AlarmSetting.Forever)
+        ) { f ->
+            f.controller.start()
+            fireDeadline(f)
+
+            assertTrue(
+                f.events.any { it is TimerEvent.StartAlarm && it.setting == AlarmSetting.Forever },
+                "expected StartAlarm, saw ${f.events}"
+            )
+            assertTrue(f.controller.alarmRinging.value)
+            val ended = f.events.filterIsInstance<TimerEvent.PhaseEnded>().single()
+            assertEquals(Phase.WORK, ended.info.endedPhase)
         }
 
     @Test
-    fun `editing config while idle re-derives the displayed duration`() =
-        timerTest(config(workMinutes = 25, loops = 4)) { controller, _ ->
-            assertEquals(25 * 60, controller.state.value.remainingSeconds)
+    fun `a fixed alarm stops itself after its duration`() =
+        timerTest(config(workSeconds = 5, breakMinutes = 1, alarm = AlarmSetting.Fixed(10))) { f ->
+            f.controller.start()
+            fireDeadline(f)
+            assertTrue(f.controller.alarmRinging.value)
 
-            controller.updateConfig(config(workMinutes = 50, loops = 4))
+            advanceTimeBy(10_001)
+            runCurrent()
+
+            assertTrue(!f.controller.alarmRinging.value, "fixed alarm should have auto-stopped")
+        }
+
+    @Test
+    fun `a forever alarm keeps ringing until stopped`() =
+        timerTest(config(workSeconds = 5, breakMinutes = 10, alarm = AlarmSetting.Forever)) { f ->
+            f.controller.start()
+            fireDeadline(f)
+
+            advanceTimeBy(300_000)
+            runCurrent()
+            assertTrue(f.controller.alarmRinging.value, "forever alarm must not self-stop")
+
+            f.controller.stopAlarm()
+            runCurrent()
+            assertTrue(!f.controller.alarmRinging.value)
+        }
+
+    @Test
+    fun `no alarm effect is emitted when the alarm is off`() =
+        timerTest(config(workSeconds = 5, breakSeconds = 5, alarm = AlarmSetting.Off)) { f ->
+            f.controller.start()
+            fireDeadline(f)
+
+            assertTrue(f.events.none { it is TimerEvent.StartAlarm })
+            assertTrue(!f.controller.alarmRinging.value)
+        }
+
+    // ---------------------------------------------------------------- config changes
+
+    @Test
+    fun `editing config while idle re-derives the displayed duration`() =
+        timerTest(config(workMinutes = 25, loops = 4)) { f ->
+            assertEquals(25 * 60, f.controller.state.value.remainingSeconds)
+
+            f.controller.updateConfig(config(workMinutes = 50, loops = 4))
 
             assertEquals(
                 50 * 60,
-                controller.state.value.remainingSeconds,
+                f.controller.state.value.remainingSeconds,
                 "regression: changing the work duration used to leave the display stale"
             )
         }
 
     @Test
     fun `shrinking the loop count clamps the current loop`() =
-        timerTest(config(workSeconds = 5, breakSeconds = 5, loops = 5)) { controller, _ ->
-            controller.start()
-            repeat(4) {
-                advanceTimeBy(5_000)
-                runCurrent()
-            }
-            val loopBefore = controller.state.value.currentLoop
-            assertTrue(loopBefore >= 3, "expected to be past loop 2, was $loopBefore")
+        timerTest(config(workSeconds = 5, breakSeconds = 5, loops = 5)) { f ->
+            f.controller.start()
+            repeat(4) { if (f.controller.state.value.isRunning) fireDeadline(f) }
+            assertTrue(f.controller.state.value.currentLoop >= 3)
 
-            controller.updateConfig(config(workSeconds = 5, breakSeconds = 5, loops = 2))
+            f.controller.updateConfig(config(workSeconds = 5, breakSeconds = 5, loops = 2))
 
-            val s = controller.state.value
+            val s = f.controller.state.value
             assertTrue(
                 s.currentLoop <= s.totalLoops,
                 "currentLoop=${s.currentLoop} must not exceed totalLoops=${s.totalLoops}"
             )
-        }
-
-    @Test
-    fun `reset returns to the first work phase and stops the alarm`() =
-        timerTest(config(workSeconds = 30, breakSeconds = 10, loops = 3)) { controller, events ->
-            controller.start()
-            advanceTimeBy(10_000)
-            runCurrent()
-            controller.reset()
-            runCurrent()
-
-            val s = controller.state.value
-            assertEquals(Phase.WORK, s.phase)
-            assertEquals(1, s.currentLoop)
-            assertEquals(30, s.remainingSeconds)
-            assertEquals(RunState.IDLE, s.runState)
-            assertTrue(events.any { it is TimerEvent.StopAlarm }, "reset must silence the alarm")
-        }
-
-    @Test
-    fun `skip advances immediately without waiting for the clock`() =
-        timerTest(config(workMinutes = 25, breakMinutes = 5, loops = 3)) { controller, _ ->
-            controller.start()
-            controller.skip()
-            runCurrent()
-
-            assertEquals(Phase.BREAK, controller.state.value.phase)
-            assertEquals(5 * 60, controller.state.value.remainingSeconds)
-        }
-
-    @Test
-    fun `session completes after the final work phase`() =
-        timerTest(config(workSeconds = 5, breakSeconds = 5, loops = 2)) { controller, _ ->
-            controller.start()
-            repeat(6) {
-                advanceTimeBy(5_000)
-                runCurrent()
-            }
-
-            assertEquals(RunState.COMPLETED, controller.state.value.runState)
-        }
-
-    @Test
-    fun `ticker stops once the session completes`() =
-        timerTest(config(workSeconds = 3, loops = 1)) { controller, _ ->
-            controller.start()
-            advanceTimeBy(3_000)
-            runCurrent()
-
-            assertEquals(RunState.COMPLETED, controller.state.value.runState)
-
-            // Further time must not move anything.
-            val snapshot = controller.state.value
-            advanceTimeBy(100_000)
-            runCurrent()
-
-            assertEquals(snapshot, controller.state.value)
-        }
-
-    @Test
-    fun `zero length break never produces a stuck zero-duration phase`() =
-        timerTest(config(workSeconds = 4, breakSeconds = 0, loops = 3)) { controller, _ ->
-            controller.start()
-
-            repeat(10) {
-                advanceTimeBy(4_000)
-                runCurrent()
-                val s = controller.state.value
-                if (s.isRunning) {
-                    assertTrue(s.remainingSeconds > 0, "a running phase must have time on the clock")
-                }
-            }
-
-            assertEquals(RunState.COMPLETED, controller.state.value.runState)
         }
 }

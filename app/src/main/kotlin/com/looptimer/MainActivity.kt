@@ -16,6 +16,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.core.content.ContextCompat
 import com.looptimer.data.PresetsRepository
+import kotlinx.coroutines.delay
 import com.looptimer.domain.TimerState
 import com.looptimer.service.TimerService
 import com.looptimer.ui.home.HomeScreen
@@ -61,6 +62,17 @@ class MainActivity : ComponentActivity() {
                 ?: TimerState.initial(config)
             val ringing = controller?.alarmRinging?.collectAsState()?.value ?: false
 
+            // The service does no per-second work; this drives the on-screen seconds and exists
+            // only while the screen is composed, so nothing ticks once the UI is gone.
+            LaunchedEffect(controller, timer.isRunning) {
+                if (timer.isRunning) {
+                    while (true) {
+                        delay(UI_REFRESH_INTERVAL_MS)
+                        controller?.refresh()
+                    }
+                }
+            }
+
             LoopTimerTheme(darkTheme = darkTheme) {
                 HomeScreen(
                     config = config,
@@ -88,9 +100,20 @@ class MainActivity : ComponentActivity() {
         connection.bind()
     }
 
+    override fun onResume() {
+        super.onResume()
+        // Nothing ticks while the UI is away, so re-derive the displayed time from the clock.
+        TimerService.send(this, TimerService.ACTION_REFRESH)
+    }
+
     override fun onStop() {
         connection.unbind()
         super.onStop()
+    }
+
+    private companion object {
+        /** Cadence for redrawing the on-screen seconds; only runs while the UI is visible. */
+        const val UI_REFRESH_INTERVAL_MS = 500L
     }
 
     private fun requestNotificationPermissionIfNeeded() {

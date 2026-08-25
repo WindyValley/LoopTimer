@@ -6,7 +6,7 @@ import com.looptimer.domain.RunState
 import com.looptimer.domain.TimerConfig
 import com.looptimer.domain.TimerEngine
 import com.looptimer.domain.TimerState
-import kotlin.math.max
+import com.looptimer.domain.Transition
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
@@ -16,7 +16,6 @@ import kotlinx.coroutines.flow.SharedFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asSharedFlow
 import kotlinx.coroutines.flow.asStateFlow
-import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 
 /** A side effect the host (service) must carry out; the controller never touches Android APIs. */
@@ -34,22 +33,27 @@ sealed interface TimerEvent {
 /**
  * Owns the authoritative timer state.
  *
- * Two design points matter here:
+ * Three design points matter here:
  *
- * 1. **Deadline-based timing.** The countdown stores the monotonic instant the phase ends and
- *    derives the remaining seconds from the clock. The previous implementation decremented a
- *    counter once per `delay(1000)`, so every scheduling hiccup accumulated into permanent drift
- *    and the timer stalled entirely while the process was frozen.
+ * 1. **Deadline-based, not tick-based.** The controller stores the monotonic instant the current
+ *    phase ends and derives remaining time from the clock on demand. The original implementation
+ *    decremented a counter once per `delay(1000)`, so scheduling jitter accumulated into permanent
+ *    drift and the timer stalled entirely while the process was frozen.
  *
- * 2. **Ownership.** State lives here, not in a composable's `remember`. The countdown is driven
- *    by an injected scope tied to the host's lifetime, so it survives configuration changes and
- *    keeps running while the UI is gone - which is what the foreground notification claims.
+ * 2. **No per-second work.** Reaching a boundary is delegated to a [DeadlineScheduler]
+ *    (`AlarmManager` in production), and the visible countdown is rendered by the notification's
+ *    own chronometer. Between boundaries the app runs no code at all, which is both cheaper and
+ *    more robust than keeping a process alive to count.
  *
- * The class is deliberately free of Android dependencies so it can be tested with a virtual clock.
+ * 3. **Ownership.** State lives here, not in a composable's `remember`, so it survives
+ *    configuration changes and outlives the UI - which is what the notification claims.
+ *
+ * Free of Android dependencies, so it is testable with a virtual clock and a fake scheduler.
  */
 class TimerController(
     private val scope: CoroutineScope,
     private val clock: ElapsedClock,
+    private val scheduler: DeadlineScheduler = DeadlineScheduler.NONE,
     initialConfig: TimerConfig = TimerConfig()
 ) {
     private val _config = MutableStateFlow(initialConfig)
@@ -65,15 +69,21 @@ class TimerController(
      * Whether the alarm is currently ringing, as observable state.
      *
      * Exposed separately from [events] because the UI needs the *current* value on
-     * (re)composition, not just the transition. The old code polled a global singleton every
-     * 100 ms to approximate this.
+     * (re)composition, not just the transition. The old code polled a global singleton
+     * every 100 ms to approximate this.
      */
     private val _alarmRinging = MutableStateFlow(false)
     val alarmRinging: StateFlow<Boolean> = _alarmRinging.asStateFlow()
 
-    /** Monotonic instant at which the current phase ends; null when not counting down. */
-    private var deadlineMs: Long? = null
-    private var tickJob: Job? = null
+    /**
+     * Monotonic instant at which the running phase ends, or null when not counting down.
+     *
+     * Published so the host can hand it to the notification chronometer, which then counts down
+     * without any further involvement from us.
+     */
+    private val _deadlineElapsedMs = MutableStateFlow<Long?>(null)
+    val deadlineElapsedMs: StateFlow<Long?> = _deadlineElapsedMs.asStateFlow()
+
     private var alarmJob: Job? = null
 
     /**
@@ -84,40 +94,43 @@ class TimerController(
      */
     fun updateConfig(config: TimerConfig) {
         val previous = _config.value
-        _config.value = config
         if (previous == config) return
+        _config.value = config
 
         val current = _state.value
         if (current.runState == RunState.IDLE || current.runState == RunState.COMPLETED) {
-            stopTicking()
+            clearDeadline()
             _state.value = TimerEngine.reset(config)
         } else {
             // Keep counting, but honour a changed loop count.
-            val clampedLoop = current.currentLoop.coerceAtMost(config.loops)
-            _state.value = current.copy(totalLoops = config.loops, currentLoop = clampedLoop)
+            _state.value = current.copy(
+                totalLoops = config.loops,
+                currentLoop = current.currentLoop.coerceAtMost(config.loops)
+            )
         }
     }
 
     fun start() {
-        val config = _config.value
-        val started = TimerEngine.start(_state.value, config)
-        if (!started.isRunning) {
-            _state.value = started
-            return
-        }
-        _alarmRinging.value = false
-        _events.tryEmit(TimerEvent.StopAlarm)
+        val started = TimerEngine.start(_state.value, _config.value)
+        stopAlarmInternal()
         _state.value = started
-        armDeadline(started.remainingSeconds)
-        launchTicker()
+        if (started.isRunning && started.remainingSeconds > 0) {
+            armDeadline(started.remainingSeconds)
+        } else {
+            clearDeadline()
+        }
     }
 
     fun pause() {
-        val paused = TimerEngine.pause(_state.value)
-        if (paused === _state.value) return
-        // Freeze the derived remaining time before dropping the deadline.
-        _state.value = paused.copy(remainingSeconds = remainingFromDeadline(paused.remainingSeconds))
-        stopTicking()
+        val current = _state.value
+        if (!current.isRunning) return
+        // Freeze the derived remaining time before discarding the deadline.
+        val remaining = remainingSeconds()
+        clearDeadline()
+        _state.value = current.copy(
+            runState = RunState.PAUSED,
+            remainingSeconds = remaining
+        )
     }
 
     fun toggle() {
@@ -125,125 +138,114 @@ class TimerController(
     }
 
     fun reset() {
-        stopTicking()
-        _alarmRinging.value = false
-        _events.tryEmit(TimerEvent.StopAlarm)
+        clearDeadline()
+        stopAlarmInternal()
         _state.value = TimerEngine.reset(_config.value)
     }
 
     fun skip() {
-        val config = _config.value
-        stopTicking()
-        applyTransition(TimerEngine.skip(_state.value, config))
+        applyTransition(TimerEngine.skip(_state.value, _config.value))
+    }
+
+    /**
+     * Advances past the phase whose deadline has just elapsed.
+     *
+     * Called by the host when the scheduler fires. Idempotent with respect to spurious wake-ups:
+     * if time remains, the state is simply refreshed instead of advancing.
+     */
+    fun onDeadlineReached() {
+        val current = _state.value
+        if (!current.isRunning) return
+
+        val remaining = remainingSeconds()
+        if (remaining > 0) {
+            // Woken early; re-arm for the time that is actually left.
+            _state.value = current.copy(remainingSeconds = remaining)
+            armDeadline(remaining)
+            return
+        }
+        applyTransition(TimerEngine.advance(current.copy(remainingSeconds = 0), _config.value))
+    }
+
+    /** Recomputes the visible remaining time from the clock, e.g. when the UI reappears. */
+    fun refresh() {
+        val current = _state.value
+        if (!current.isRunning) return
+        _state.value = current.copy(remainingSeconds = remainingSeconds())
     }
 
     /** Stops the alarm without otherwise disturbing the timer. */
     fun stopAlarm() {
-        alarmJob?.cancel()
-        alarmJob = null
-        _alarmRinging.value = false
-        _events.tryEmit(TimerEvent.StopAlarm)
+        stopAlarmInternal()
     }
 
-    /** Releases the ticker. The injected scope is owned by the host, so it is not cancelled here. */
+    /** Releases scheduling resources. The injected scope is owned by the host. */
     fun dispose() {
-        stopTicking()
         alarmJob?.cancel()
         alarmJob = null
     }
 
     // ------------------------------------------------------------------ internals
 
-    private fun armDeadline(seconds: Int) {
-        deadlineMs = clock.elapsedRealtimeMs() + seconds * MILLIS_PER_SECOND
-    }
-
-    /** Remaining whole seconds implied by the deadline, rounded up so the UI shows a full second. */
-    private fun remainingFromDeadline(fallback: Int): Int {
-        val deadline = deadlineMs ?: return fallback
+    /** Remaining whole seconds, rounded up so the display shows a full final second. */
+    private fun remainingSeconds(): Int {
+        val deadline = _deadlineElapsedMs.value ?: return _state.value.remainingSeconds
         val remainingMs = deadline - clock.elapsedRealtimeMs()
         if (remainingMs <= 0) return 0
-        return ceilToSeconds(remainingMs)
+        return ((remainingMs + MILLIS_PER_SECOND - 1) / MILLIS_PER_SECOND).toInt()
     }
 
-    private fun ceilToSeconds(millis: Long): Int =
-        ((millis + MILLIS_PER_SECOND - 1) / MILLIS_PER_SECOND).toInt()
-
-    private fun stopTicking() {
-        tickJob?.cancel()
-        tickJob = null
-        deadlineMs = null
+    private fun armDeadline(seconds: Int) {
+        val at = clock.elapsedRealtimeMs() + seconds * MILLIS_PER_SECOND
+        _deadlineElapsedMs.value = at
+        scheduler.schedule(at)
     }
 
-    private fun launchTicker() {
-        tickJob?.cancel()
-        tickJob = scope.launch {
-            // Loops until the deadline is cleared or the timer stops running; each iteration
-            // either publishes the derived remaining time or crosses a phase boundary.
-            while (isActive && _state.value.isRunning) {
-                val deadline = deadlineMs ?: break
-                val remainingMs = deadline - clock.elapsedRealtimeMs()
-
-                if (remainingMs <= 0) {
-                    // Crossing a boundary re-arms the deadline for the next phase (or stops).
-                    onPhaseElapsed()
-                } else {
-                    // Publish the derived value, then sleep only until the next second boundary
-                    // so the display flips promptly without busy-waiting.
-                    _state.value = _state.value.copy(remainingSeconds = ceilToSeconds(remainingMs))
-                    val untilNextBoundary = remainingMs % MILLIS_PER_SECOND
-                    delay(
-                        max(
-                            1L,
-                            if (untilNextBoundary == 0L) MILLIS_PER_SECOND else untilNextBoundary
-                        )
-                    )
-                }
-            }
-        }
+    private fun clearDeadline() {
+        _deadlineElapsedMs.value = null
+        scheduler.cancel()
     }
 
-    private fun onPhaseElapsed() {
-        val config = _config.value
-        // Force the engine to see an exhausted clock, then advance exactly one boundary.
-        val exhausted = _state.value.copy(remainingSeconds = 0)
-        applyTransition(TimerEngine.advance(exhausted, config))
-    }
-
-    private fun applyTransition(transition: com.looptimer.domain.Transition) {
+    private fun applyTransition(transition: Transition) {
         _state.value = transition.state
 
-        transition.effects.alarm?.let { raiseAlarm(it) }
+        transition.effects.alarm?.let(::raiseAlarm)
         transition.effects.notification?.let { _events.tryEmit(TimerEvent.PhaseEnded(it)) }
 
         if (transition.state.isRunning && transition.state.remainingSeconds > 0) {
             armDeadline(transition.state.remainingSeconds)
-            launchTicker()
         } else {
-            stopTicking()
+            clearDeadline()
         }
     }
 
     /**
      * Raises the alarm and, for a fixed-duration setting, schedules its stop.
      *
-     * The auto-stop lives here rather than in the alarm player so it participates in structured
-     * concurrency; the previous implementation used a bare interruptible `Thread`.
+     * The auto-stop participates in structured concurrency; the original implementation used a
+     * bare interruptible `Thread`. This is the one place a coroutine still waits on wall time,
+     * and only while the alarm is audible.
      */
     private fun raiseAlarm(setting: AlarmSetting) {
         alarmJob?.cancel()
         _alarmRinging.value = true
         _events.tryEmit(TimerEvent.StartAlarm(setting))
 
-        if (setting is AlarmSetting.Fixed) {
-            alarmJob = scope.launch {
+        alarmJob = if (setting is AlarmSetting.Fixed) {
+            scope.launch {
                 delay(setting.seconds * MILLIS_PER_SECOND)
-                _alarmRinging.value = false
-                _events.tryEmit(TimerEvent.StopAlarm)
+                stopAlarmInternal()
             }
         } else {
-            alarmJob = null
+            null
         }
+    }
+
+    private fun stopAlarmInternal() {
+        alarmJob?.cancel()
+        alarmJob = null
+        _alarmRinging.value = false
+        _events.tryEmit(TimerEvent.StopAlarm)
     }
 
     private companion object {

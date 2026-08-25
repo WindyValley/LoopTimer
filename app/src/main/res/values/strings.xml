@@ -17,6 +17,7 @@
     <string name="notif_paused_title">已暂停 · %1$s</string>
     <string name="notif_awaiting_title">待开始 · %1$s</string>
     <string name="notif_running_body">剩余 %1$s · 第 %2$d / %3$d 轮</string>
+    <string name="notif_loops">第 %1$d / %2$d 轮</string>
 
     <!-- Phase-end notification -->
     <string name="notif_phase_end_title">%1$s结束</string>
