@@ -87,6 +87,35 @@ class TimerController(
     private var alarmJob: Job? = null
 
     /**
+     * Restores a run that was interrupted by process death.
+     *
+     * The remaining time is recomputed from the persisted deadline rather than trusting the stored
+     * seconds, so the restored state agrees with the `AlarmManager` wake-up that is still pending.
+     * A snapshot whose deadline has already passed is advanced immediately; one that cannot be
+     * trusted (e.g. after a reboot reset the monotonic clock) is ignored by the caller.
+     */
+    fun restore(state: TimerState, deadlineElapsedMs: Long?) {
+        _state.value = state
+        _deadlineElapsedMs.value = deadlineElapsedMs
+
+        if (!state.isRunning || deadlineElapsedMs == null) {
+            // Nothing should be counting; make sure no stale wake-up survives.
+            if (deadlineElapsedMs == null) scheduler.cancel()
+            return
+        }
+
+        val remaining = remainingSeconds()
+        if (remaining <= 0) {
+            // The boundary elapsed while we were dead; catch up now.
+            onDeadlineReached()
+        } else {
+            _state.value = state.copy(remainingSeconds = remaining)
+            // Re-arm defensively: the pending alarm may have been cleared with the process.
+            scheduler.schedule(deadlineElapsedMs)
+        }
+    }
+
+    /**
      * Replaces the configuration.
      *
      * A running timer keeps its progress; an idle one re-derives its duration from the new config
