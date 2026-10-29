@@ -4,6 +4,7 @@ kotlin = "2.0.21"
 coreKtx = "1.15.0"
 lifecycle = "2.8.7"
 activityCompose = "1.9.3"
+navigationCompose = "2.8.5"
 composeBom = "2024.12.01"
 detekt = "1.23.7"
 junit = "4.13.2"
@@ -14,6 +15,7 @@ orgJson = "20240303"
 androidx-core-ktx = { group = "androidx.core", name = "core-ktx", version.ref = "coreKtx" }
 androidx-lifecycle-runtime-ktx = { group = "androidx.lifecycle", name = "lifecycle-runtime-ktx", version.ref = "lifecycle" }
 androidx-activity-compose = { group = "androidx.activity", name = "activity-compose", version.ref = "activityCompose" }
+androidx-navigation-compose = { group = "androidx.navigation", name = "navigation-compose", version.ref = "navigationCompose" }
 androidx-compose-bom = { group = "androidx.compose", name = "compose-bom", version.ref = "composeBom" }
 androidx-ui = { group = "androidx.compose.ui", name = "ui" }
 androidx-ui-graphics = { group = "androidx.compose.ui", name = "ui-graphics" }

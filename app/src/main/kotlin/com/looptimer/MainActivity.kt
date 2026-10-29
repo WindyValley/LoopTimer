@@ -1,35 +1,28 @@
 package com.looptimer
 
 import android.Manifest
-import android.content.Intent
 import android.content.pm.PackageManager
 import android.os.Build
 import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.result.contract.ActivityResultContracts
-import androidx.compose.runtime.LaunchedEffect
-import androidx.compose.runtime.collectAsState
-import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableStateOf
-import androidx.compose.runtime.remember
-import androidx.compose.runtime.setValue
 import androidx.core.content.ContextCompat
 import com.looptimer.data.PresetsRepository
-import kotlinx.coroutines.delay
-import com.looptimer.domain.TimerState
 import com.looptimer.service.TimerService
-import com.looptimer.ui.home.HomeScreen
 import com.looptimer.ui.home.TimerConnection
-import com.looptimer.ui.theme.LoopTimerTheme
+import com.looptimer.ui.navigation.AppNavHost
 
 /**
- * Hosts the home screen.
+ * The single activity of the app.
  *
- * The activity deliberately owns no timer state: it binds to [TimerService], renders whatever
- * the service publishes, and forwards user intents back as service actions. Previously the
- * countdown, the phase state machine, notification posting and service control all lived inside
- * a single 570-line composable, so the timer died with the UI.
+ * It only owns the Android-level concerns - the notification permission, binding to
+ * [TimerService] while visible, and hosting the Compose navigation graph. All screens and
+ * navigation live in the UI layer ([AppNavHost]); previously the home, preset list and preset
+ * editor were three separate activities, triplicating theme setup and chaining the back stack.
+ *
+ * The activity owns no timer state: it binds to the service, which remains the single source
+ * of truth, and forwards user intents as service actions.
  */
 class MainActivity : ComponentActivity() {
 
@@ -41,57 +34,13 @@ class MainActivity : ComponentActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-
         connection = TimerConnection(this)
-        val presets = PresetsRepository.getInstance(this)
-
         requestNotificationPermissionIfNeeded()
-
         setContent {
-            val controller by connection.controller.collectAsState()
-            var darkTheme by remember { mutableStateOf(presets.isDarkTheme()) }
-
-            // The repository is the source of truth for configuration, so selecting a preset in
-            // the other activity is picked up here without polling a timestamp on resume.
-            val config by presets.activeConfig.collectAsState()
-            LaunchedEffect(controller, config) {
-                controller?.updateConfig(config)
-            }
-
-            val timer = controller?.state?.collectAsState()?.value
-                ?: TimerState.initial(config)
-            val ringing = controller?.alarmRinging?.collectAsState()?.value ?: false
-
-            // The service does no per-second work; this drives the on-screen seconds and exists
-            // only while the screen is composed, so nothing ticks once the UI is gone.
-            LaunchedEffect(controller, timer.isRunning) {
-                if (timer.isRunning) {
-                    while (true) {
-                        delay(UI_REFRESH_INTERVAL_MS)
-                        controller?.refresh()
-                    }
-                }
-            }
-
-            LoopTimerTheme(darkTheme = darkTheme) {
-                HomeScreen(
-                    config = config,
-                    timer = timer,
-                    alarmRinging = ringing,
-                    onToggleTheme = {
-                        darkTheme = !darkTheme
-                        presets.setDarkTheme(darkTheme)
-                    },
-                    onConfigChange = presets::saveCurrentConfig,
-                    onToggleRun = { TimerService.send(this, TimerService.ACTION_TOGGLE) },
-                    onReset = { TimerService.send(this, TimerService.ACTION_RESET) },
-                    onSkip = { TimerService.send(this, TimerService.ACTION_SKIP) },
-                    onStopAlarm = { TimerService.send(this, TimerService.ACTION_STOP_ALARM) },
-                    onOpenPresets = {
-                        startActivity(Intent(this, PresetListActivity::class.java))
-                    }
-                )
-            }
+            AppNavHost(
+                connection = connection,
+                presets = PresetsRepository.getInstance(this)
+            )
         }
     }
 
@@ -109,11 +58,6 @@ class MainActivity : ComponentActivity() {
     override fun onStop() {
         connection.unbind()
         super.onStop()
-    }
-
-    private companion object {
-        /** Cadence for redrawing the on-screen seconds; only runs while the UI is visible. */
-        const val UI_REFRESH_INTERVAL_MS = 500L
     }
 
     private fun requestNotificationPermissionIfNeeded() {

@@ -39,16 +39,6 @@
             </intent-filter>
         </activity>
 
-        <activity
-            android:name=".PresetListActivity"
-            android:exported="false"
-            android:theme="@style/Theme.LoopTimer"/>
-
-        <activity
-            android:name=".PresetEditActivity"
-            android:exported="false"
-            android:theme="@style/Theme.LoopTimer"/>
-
         <service
             android:name=".service.TimerService"
             android:enabled="true"
