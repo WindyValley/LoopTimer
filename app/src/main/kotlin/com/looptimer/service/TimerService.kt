@@ -95,6 +95,7 @@ class TimerService : Service() {
             ACTION_TOGGLE -> controller.toggle()
             ACTION_SKIP -> controller.skip()
             ACTION_RESET -> controller.reset()
+            ACTION_RESTART -> controller.restart()
             ACTION_STOP_ALARM -> controller.stopAlarm()
             ACTION_REFRESH -> controller.refresh()
             // Delivered by AlarmManager at a phase boundary.
@@ -261,6 +262,7 @@ class TimerService : Service() {
         const val ACTION_TOGGLE = "com.looptimer.action.TOGGLE"
         const val ACTION_SKIP = "com.looptimer.action.SKIP"
         const val ACTION_RESET = "com.looptimer.action.RESET"
+        const val ACTION_RESTART = "com.looptimer.action.RESTART"
         const val ACTION_STOP_ALARM = "com.looptimer.action.STOP_ALARM"
         const val ACTION_SHUTDOWN = "com.looptimer.action.SHUTDOWN"
         const val ACTION_REFRESH = "com.looptimer.action.REFRESH"

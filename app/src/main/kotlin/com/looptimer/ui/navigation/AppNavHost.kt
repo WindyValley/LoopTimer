@@ -151,6 +151,7 @@ private fun HomeRoute(
         onReset = { TimerService.send(context, TimerService.ACTION_RESET) },
         onSkip = { TimerService.send(context, TimerService.ACTION_SKIP) },
         onStopAlarm = { TimerService.send(context, TimerService.ACTION_STOP_ALARM) },
+        onRestart = { TimerService.send(context, TimerService.ACTION_RESTART) },
         onOpenPresets = onOpenPresets
     )
 }

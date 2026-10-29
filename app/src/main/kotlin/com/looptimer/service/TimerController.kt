@@ -172,6 +172,12 @@ class TimerController(
         _state.value = TimerEngine.reset(_config.value)
     }
 
+    /** Resets to the full duration and immediately starts again (used from the completed state). */
+    fun restart() {
+        reset()
+        start()
+    }
+
     fun skip() {
         applyTransition(TimerEngine.skip(_state.value, _config.value))
     }

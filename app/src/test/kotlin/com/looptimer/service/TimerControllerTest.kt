@@ -414,4 +414,27 @@ class TimerControllerTest {
                 "currentLoop=${s.currentLoop} must not exceed totalLoops=${s.totalLoops}"
             )
         }
+
+    // ---------------------------------------------------------------- restart from completed
+
+    @Test
+    fun `restart from completed resets to the first phase and runs again`() =
+        timerTest(config(workSeconds = 5, breakSeconds = 0, loops = 2)) { f ->
+            f.controller.start()
+            fireDeadline(f) // work loop 1 -> work loop 2 (no break)
+            fireDeadline(f) // work loop 2 -> completed
+            assertEquals(RunState.COMPLETED, f.controller.state.value.runState)
+
+            f.controller.restart()
+
+            val s = f.controller.state.value
+            assertEquals(RunState.RUNNING, s.runState)
+            assertEquals(Phase.WORK, s.phase)
+            assertEquals(1, s.currentLoop)
+            assertEquals(5, s.remainingSeconds)
+            assertTrue(
+                f.scheduler.scheduledAt != null,
+                "a fresh deadline must be armed when restarting"
+            )
+        }
 }

@@ -38,7 +38,6 @@ import androidx.compose.ui.unit.sp
 import com.looptimer.BuildConfig
 import com.looptimer.R
 import com.looptimer.domain.Phase
-import com.looptimer.domain.RunState
 import com.looptimer.domain.TimeRanges
 import com.looptimer.domain.TimerConfig
 import com.looptimer.domain.TimerState
@@ -65,6 +64,7 @@ fun HomeScreen(
     onReset: () -> Unit,
     onSkip: () -> Unit,
     onStopAlarm: () -> Unit,
+    onRestart: () -> Unit = {},
     onOpenPresets: () -> Unit = {}
 ) {
     val phaseColor = if (timer.phase == Phase.WORK) WorkColor else BreakColor
@@ -103,9 +103,13 @@ fun HomeScreen(
         Spacer(Modifier.height(8.dp))
 
         Text(
-            text = stringResource(
-                R.string.home_progress, timer.currentLoop, timer.totalLoops, phaseLabel
-            ),
+            text = if (timer.isFinished) {
+                stringResource(R.string.home_all_done)
+            } else {
+                stringResource(
+                    R.string.home_progress, timer.currentLoop, timer.totalLoops, phaseLabel
+                )
+            },
             fontSize = 16.sp,
             color = phaseColor
         )
@@ -151,13 +155,17 @@ fun HomeScreen(
 
         Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
             Button(
-                onClick = onToggleRun,
-                enabled = timer.remainingSeconds > 0 || timer.runState == RunState.COMPLETED,
+                onClick = if (timer.isFinished) onRestart else onToggleRun,
+                enabled = timer.remainingSeconds > 0 || timer.isFinished,
                 colors = ButtonDefaults.buttonColors(containerColor = phaseColor)
             ) {
                 Text(
                     stringResource(
-                        if (timer.isRunning) R.string.action_pause else R.string.action_start
+                        when {
+                            timer.isFinished -> R.string.action_restart
+                            timer.isRunning -> R.string.action_pause
+                            else -> R.string.action_start
+                        }
                     ),
                     fontSize = 18.sp,
                     color = Color.White
@@ -166,7 +174,7 @@ fun HomeScreen(
             OutlinedButton(onClick = onReset) {
                 Text(stringResource(R.string.action_reset), fontSize = 18.sp)
             }
-            OutlinedButton(onClick = onSkip) {
+            OutlinedButton(onClick = onSkip, enabled = !timer.isFinished) {
                 Text(stringResource(R.string.action_skip), fontSize = 18.sp)
             }
         }

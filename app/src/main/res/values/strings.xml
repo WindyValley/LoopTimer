@@ -29,6 +29,7 @@
 
     <!-- Actions -->
     <string name="action_start">开始</string>
+    <string name="action_restart">重新开始</string>
     <string name="action_pause">暂停</string>
     <string name="action_skip">跳过</string>
     <string name="action_stop">停止</string>
@@ -55,6 +56,7 @@
     <!-- Home -->
     <string name="home_title">循环计时器</string>
     <string name="home_progress">第 %1$d / %2$d 轮 · %3$s</string>
+    <string name="home_all_done">全部完成</string>
     <string name="home_presets">预设管理</string>
     <string name="home_version">版本 %1$s</string>
 
