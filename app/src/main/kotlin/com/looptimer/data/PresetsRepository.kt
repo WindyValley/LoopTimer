@@ -46,6 +46,11 @@ class PresetsRepository private constructor(context: Context) {
     private val _selectedPresetId = MutableStateFlow<String?>(null)
     val selectedPresetId: StateFlow<String?> = _selectedPresetId.asStateFlow()
 
+    // Observable single source for the theme, mirroring the other flows. The screens observe
+    // this instead of reading a plain boolean once, so toggling it recomposes every destination.
+    private val _darkTheme = MutableStateFlow(prefs.getBoolean(KEY_DARK_THEME, true))
+    val darkTheme: StateFlow<Boolean> = _darkTheme.asStateFlow()
+
     init {
         migrateIfNeeded()
         _presets.value = readPresets()
@@ -114,10 +119,11 @@ class PresetsRepository private constructor(context: Context) {
 
     // ------------------------------------------------------------------ theme
 
-    fun isDarkTheme(): Boolean = prefs.getBoolean(KEY_DARK_THEME, true)
-
     fun setDarkTheme(dark: Boolean) {
-        prefs.edit().putBoolean(KEY_DARK_THEME, dark).apply()
+        synchronized(lock) {
+            prefs.edit().putBoolean(KEY_DARK_THEME, dark).apply()
+            _darkTheme.value = dark
+        }
     }
 
     // ------------------------------------------------------------------ storage

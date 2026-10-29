@@ -4,9 +4,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
-import androidx.compose.runtime.setValue
 import androidx.compose.ui.platform.LocalContext
 import androidx.navigation.NavType
 import androidx.navigation.compose.NavHost
@@ -47,7 +45,8 @@ private const val ARG_NEW = "new"
 @Composable
 fun AppNavHost(connection: TimerConnection, presets: PresetsRepository) {
     val navController = rememberNavController()
-    var darkTheme by remember { mutableStateOf(presets.isDarkTheme()) }
+    // The repository flow is the single source of the theme choice for every destination.
+    val darkTheme by presets.darkTheme.collectAsState()
 
     LoopTimerTheme(darkTheme = darkTheme) {
         NavHost(navController = navController, startDestination = Route.HOME) {
@@ -55,10 +54,7 @@ fun AppNavHost(connection: TimerConnection, presets: PresetsRepository) {
                 HomeRoute(
                     connection = connection,
                     presets = presets,
-                    onToggleTheme = {
-                        darkTheme = !darkTheme
-                        presets.setDarkTheme(darkTheme)
-                    },
+                    onToggleTheme = { presets.setDarkTheme(!darkTheme) },
                     onOpenPresets = { navController.navigate(Route.PRESETS) }
                 )
             }
