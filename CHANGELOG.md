@@ -47,6 +47,17 @@ listed below; the work targets correctness and maintainability.
 
 ### Changed
 
+- **Single activity with Navigation Compose.** The home, preset list and preset editor were
+  three separate activities; they are now one `MainActivity` hosting a `NavHost`, with the edited
+  preset id carried as a route argument instead of an Intent extra. Theme setup is no longer
+  triplicated and the back stack is in-process.
+- **Theme is an observable single source.** The dark/light choice is now a `StateFlow` in the
+  repository instead of a one-shot boolean read with a local UI copy, so it applies to every
+  destination and survives recreation.
+- **The service no longer lingers while idle.** Binding alone no longer starts it, and once the
+  timer is idle/completed, silent and has no UI bound, the service stops itself. A running, paused,
+  awaiting or ringing timer keeps it exactly as before.
+- **Dependencies and Gradle plugins moved to a version catalog** (`gradle/libs.versions.toml`).
 - Layered into `domain` (pure Kotlin) / `service` (runtime state) / `data` (persistence) / `ui`.
   `MainActivity` went from 1122 lines to ~90.
 - Phase progression consolidated into a single `TimerEngine`, replacing three divergent copies.
@@ -80,7 +91,13 @@ listed below; the work targets correctness and maintainability.
 
 ### Added
 
-- 65 unit tests covering the state machine, timing behaviour, and the persistence codec including
+- **Completion state.** When every loop finishes the home screen shows "all done" and the primary
+  action becomes "restart" (an atomic reset-and-start), instead of stalling on "round N/N, 00:00"
+  with a start button that did nothing. Skip is disabled once completed.
+- **Instrumented tests** (`connectedDebugAndroidTest`) pinning the completion/run-state Compose
+  rendering and the single-activity launch/navigation/back behaviour, complementing the JVM unit
+  tests that cannot render Compose.
+- 75 unit tests covering the state machine, timing behaviour, and the persistence codec including
   legacy migration. The project previously had none.
 - `detekt` static analysis, configured to fail on any finding, wired into CI.
 - CI now runs unit tests, static analysis and lint, and runs them on pull requests — the previous
