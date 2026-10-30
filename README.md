@@ -15,6 +15,7 @@ sdk.dir=/path/to/android-sdk
 | Task | Command |
 | --- | --- |
 | Unit tests | `./gradlew testDebugUnitTest` |
+| Instrumented tests (device/emulator) | `./gradlew connectedDebugAndroidTest` |
 | Static analysis | `./gradlew detekt` |
 | Lint | `./gradlew lintDebug` |
 | Debug APK | `./gradlew assembleDebug` |

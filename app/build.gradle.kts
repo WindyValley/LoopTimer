@@ -31,6 +31,7 @@ android {
         targetSdk = 35
         versionCode = versionMajor * 10000 + versionMinor * 100 + versionPatch
         versionName = "$versionMajor.$versionMinor.$versionPatch"
+        testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
 
     buildFeatures {
@@ -115,4 +116,13 @@ dependencies {
     testImplementation(libs.kotlinx.coroutines.test)
     // Real org.json implementation: android.jar stubs it out in unit tests.
     testImplementation(libs.org.json)
+
+    androidTestImplementation(platform(libs.androidx.compose.bom))
+    androidTestImplementation(libs.androidx.junit)
+    androidTestImplementation(libs.androidx.test.rules)
+    androidTestImplementation(libs.androidx.espresso.core)
+    androidTestImplementation(libs.androidx.ui.test.junit4)
+    androidTestImplementation(libs.androidx.navigation.testing)
+    debugImplementation(libs.androidx.ui.tooling)
+    debugImplementation(libs.androidx.ui.test.manifest)
 }
