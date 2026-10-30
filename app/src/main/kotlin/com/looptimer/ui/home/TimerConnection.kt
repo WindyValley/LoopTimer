@@ -29,10 +29,15 @@ class TimerConnection(private val context: Context) : ServiceConnection {
 
     fun bind() {
         if (bound) return
-        val intent = Intent(context, TimerService::class.java)
-        // Create the service so it exists before the user presses start.
-        context.startService(intent)
-        bound = context.bindService(intent, this, Context.BIND_AUTO_CREATE)
+        // BIND_AUTO_CREATE brings the service up while the UI is visible. It is *not* started
+        // here: a merely-bound service is destroyed when the UI leaves unless a timer is actually
+        // running (in which case START/TOGGLE has promoted it to a started service). This keeps an
+        // idle service from lingering for the whole process lifetime.
+        bound = context.bindService(
+            Intent(context, TimerService::class.java),
+            this,
+            Context.BIND_AUTO_CREATE
+        )
     }
 
     fun unbind() {

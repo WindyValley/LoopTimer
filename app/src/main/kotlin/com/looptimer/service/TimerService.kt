@@ -49,6 +49,9 @@ class TimerService : Service() {
     private var observerJob: Job? = null
     private var isForeground = false
 
+    /** Number of currently bound UI clients. While non-zero the service must not stop itself. */
+    private var boundClients = 0
+
     override fun onCreate() {
         super.onCreate()
 
@@ -77,7 +80,32 @@ class TimerService : Service() {
         }
     }
 
-    override fun onBind(intent: Intent?): IBinder = binder
+    override fun onBind(intent: Intent?): IBinder {
+        boundClients += 1
+        return binder
+    }
+
+    override fun onUnbind(intent: Intent?): Boolean {
+        boundClients = (boundClients - 1).coerceAtLeast(0)
+        // The last UI client left; if nothing is running there is no reason to stay alive.
+        maybeStopWhenIdle()
+        return false
+    }
+
+    /**
+     * Stops the service once it has no work and no UI.
+     *
+     * A running, paused, awaiting-confirmation or ringing timer keeps the service alive (its
+     * AlarmManager deadline and snapshot are what survive process death anyway). Once it is
+     * idle/completed, silent and unbound, lingering only wastes the process, so release it.
+     */
+    private fun maybeStopWhenIdle() {
+        if (boundClients > 0 || controller.alarmRinging.value) return
+        val state = controller.state.value.runState
+        if (state == RunState.IDLE || state == RunState.COMPLETED) {
+            stopSelf()
+        }
+    }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         // A null intent means the system recreated us after the process was killed. The original
@@ -106,6 +134,10 @@ class TimerService : Service() {
             }
             else -> Logger.w(TAG, "Unknown action: ${intent.action}")
         }
+
+        // A reset / stop-alarm delivered with no UI bound (e.g. from a notification) may leave
+        // nothing to do; release the service then. Running/paused/awaiting states keep it alive.
+        maybeStopWhenIdle()
 
         // Not sticky: an empty redelivery carries no timer state, and the AlarmManager deadline
         // plus the persisted snapshot already cover recovery.
@@ -198,6 +230,8 @@ class TimerService : Service() {
             is TimerEvent.StopAlarm -> {
                 alarm.stop()
                 leaveForeground()
+                // A fixed-duration alarm finishing at completion, with no UI open, is the end.
+                maybeStopWhenIdle()
             }
             is TimerEvent.PhaseEnded ->
                 notify(TimerNotifications.ID_PHASE_END, notifier.phaseEnd(event))
