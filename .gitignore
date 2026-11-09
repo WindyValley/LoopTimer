@@ -21,3 +21,5 @@ keystore.properties
 .idea/
 *.iml
 .DS_Store
+# OpenViking 本机记忆空间配置（设备相关，不入库）
+.openviking/
